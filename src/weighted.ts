@@ -2,6 +2,7 @@ import { type AsOfFit, asOfFit } from './jobs.js';
 import type { Distribution, GarchModel, MeanModel } from './model.js';
 import {
   type FitAt,
+  qlikeTerm,
   realizedVariance,
   scoreWalkForward,
   segments,
@@ -76,11 +77,6 @@ export type WeightedForecast = {
   readonly validation: Validation;
   /** Every origin's fits and weights — what a simulation from each origin draws on. */
   readonly walkForward: readonly WeightedOrigin[];
-};
-
-const qlikeTerm = (realized: number, forecast: number) => {
-  const ratio = Math.max(realized / forecast, 1e-300);
-  return ratio - Math.log(ratio) - 1;
 };
 
 const usable = (v: number | null | undefined): v is number =>

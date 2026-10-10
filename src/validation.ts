@@ -42,10 +42,15 @@ export function qlike(realized: readonly number[], forecast: readonly number[]):
   let sum = 0;
   for (let i = 0; i < realized.length; i += 1) {
     if (!(forecast[i] > 0)) throw new RangeError('qlike: forecast variance must be positive');
-    const ratio = Math.max(realized[i] / forecast[i], 1e-300);
-    sum += ratio - Math.log(ratio) - 1;
+    sum += qlikeTerm(realized[i], forecast[i]);
   }
   return sum / realized.length;
+}
+
+/** One observation's QLIKE, r/f − ln(r/f) − 1, the ratio floored above 0. */
+export function qlikeTerm(realized: number, forecast: number): number {
+  const ratio = Math.max(realized / forecast, 1e-300);
+  return ratio - Math.log(ratio) - 1;
 }
 
 /** Realised-variance proxy: the mean squared return (zero mean over a short horizon). */

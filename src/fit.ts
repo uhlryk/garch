@@ -10,7 +10,7 @@ import {
   type MeanModel,
   persistence,
 } from './model.js';
-import { bfgs } from './optimize.js';
+import { bfgs, type Objective } from './optimize.js';
 
 export class GarchInputError extends Error {}
 
@@ -183,7 +183,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   };
   const { toX, toParams, objective } = spaceOf(null);
 
-  const starts: { x: number[]; warm: boolean }[] = [];
+  const starts: Start[] = [];
   for (const level of START_PERSISTENCE) {
     let best: { value: number; p: GarchParams } | null = null;
     for (const alpha of START_ALPHA)
@@ -211,22 +211,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       starts.push({ x: toX(warm), warm: true });
   }
 
-  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] =
-    [];
-  for (const start of starts) {
-    const run = bfgs(objective, start.x);
-    if (!Number.isFinite(run.value)) continue;
-    const params = toParams(run.x);
-    const same = modes.find((m) => sameMode(m.params, m.value, params, run.value));
-    if (!same) modes.push({ params, value: run.value, converged: run.converged, fromWarmStart: start.warm, starts: 1 });
-    else {
-      same.starts += 1;
-      same.fromWarmStart ||= start.warm;
-      if (run.value < same.value) Object.assign(same, { params, value: run.value, converged: run.converged });
-    }
-  }
-  if (!modes.length) throw new GarchInputError('no starting point gave a finite likelihood');
-  modes.sort((a, b) => a.value - b.value);
+  const modes = climb(objective, toParams, starts, persistence);
   // ν pushed against a bound: the optimum is the one with ν held there, where
   // the other parameters can converge (free, the logit of ν runs off to ±∞).
   let nuBound: 'lower' | 'upper' | null = null;
@@ -258,14 +243,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       ? robustStandardErrors(returns, params, bc, { gamma: asymmetric, nu: studentT && !nuBound, mu: !zeroMean })
       : null,
     nuBound,
-    modes: modes.map((m) => ({
-      params: m.params,
-      persistence: persistence(m.params),
-      logLikelihood: -m.value * n,
-      converged: m.converged,
-      fromWarmStart: m.fromWarmStart,
-      starts: m.starts,
-    })),
+    modes: reportModes(modes, n, persistence),
   };
 }
 
@@ -331,7 +309,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
     const gx = [zeroMean ? 0 : g[0], g[1] * (1 - beta), (g[4] - g[1] * level) * beta * (1 - beta), g[2], g[3]];
     return { value: -value / n, gradient: gx.map((v) => -v / n) };
   };
-  const starts: { x: number[]; warm: boolean }[] = [];
+  const starts: Start[] = [];
   for (const level of START_PERSISTENCE) {
     let best: { value: number; p: GarchParams } | null = null;
     for (const alpha of START_EGARCH_ALPHA)
@@ -345,28 +323,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
   const w = options.warmStart;
   if (w && w.beta > 0 && w.beta < 1 && [w.mu, w.omega, w.alpha, w.gamma].every(Number.isFinite))
     starts.push({ x: toX(zeroMean ? { ...w, mu: 0 } : w), warm: true });
-  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] =
-    [];
-  for (const start of starts) {
-    const run = bfgs(objective, start.x);
-    if (!Number.isFinite(run.value)) continue;
-    const params = toParams(run.x);
-    const same = modes.find(
-      (m) =>
-        Math.abs(m.value - run.value) < 1e-6 &&
-        Math.abs(m.params.beta - params.beta) < 1e-3 &&
-        Math.abs(m.params.alpha - params.alpha) < 1e-3 &&
-        Math.abs(m.params.gamma - params.gamma) < 1e-3,
-    );
-    if (!same) modes.push({ params, value: run.value, converged: run.converged, fromWarmStart: start.warm, starts: 1 });
-    else {
-      same.starts += 1;
-      same.fromWarmStart ||= start.warm;
-      if (run.value < same.value) Object.assign(same, { params, value: run.value, converged: run.converged });
-    }
-  }
-  if (!modes.length) throw new GarchInputError('no starting point gave a finite likelihood');
-  modes.sort((a, b) => a.value - b.value);
+  const modes = climb(objective, toParams, starts, egarchPersistence);
   const params = modes[0].params;
   const ll = egarchLogLikelihood(returns, params, lnBc, sig2);
   return {
@@ -390,14 +347,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
         )
       : null,
     nuBound: null,
-    modes: modes.map((m) => ({
-      params: m.params,
-      persistence: m.params.beta,
-      logLikelihood: -m.value * n,
-      converged: m.converged,
-      fromWarmStart: m.fromWarmStart,
-      starts: m.starts,
-    })),
+    modes: reportModes(modes, n, egarchPersistence),
   };
 }
 
@@ -406,12 +356,56 @@ function informationCriteria(ll: number, k: number, n: number) {
   return { parameterCount: k, aic: -2 * ll + 2 * k, bic: -2 * ll + k * Math.log(n) };
 }
 
-/** Two runs stopped at the same optimum: the same likelihood and the same dynamics. */
-function sameMode(a: GarchParams, aValue: number, b: GarchParams, bValue: number): boolean {
-  return (
-    Math.abs(aValue - bValue) < 1e-6 &&
-    Math.abs(persistence(a) - persistence(b)) < 1e-3 &&
-    Math.abs(a.alpha - b.alpha) < 1e-3 &&
-    Math.abs(a.gamma - b.gamma) < 1e-3
-  );
+/** EGARCH's persistence: β, the log-variance's. */
+const egarchPersistence = (p: GarchParams) => p.beta;
+
+type Start = { x: number[]; warm: boolean };
+
+/** One optimum while the starts are run: its best run's parameters and value (the negative mean log-likelihood). */
+type ModeRun = { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number };
+
+/**
+ * BFGS from every start; runs that stop at the same optimum — the same
+ * likelihood and the same dynamics (`persistenceOf`, α, γ) — are one mode,
+ * kept at its best run. Best first; refuses when no start gave a finite value.
+ */
+function climb(
+  objective: Objective,
+  toParams: (x: readonly number[]) => GarchParams,
+  starts: readonly Start[],
+  persistenceOf: (p: GarchParams) => number,
+): ModeRun[] {
+  const modes: ModeRun[] = [];
+  for (const start of starts) {
+    const run = bfgs(objective, start.x);
+    if (!Number.isFinite(run.value)) continue;
+    const params = toParams(run.x);
+    const same = modes.find(
+      (m) =>
+        Math.abs(m.value - run.value) < 1e-6 &&
+        Math.abs(persistenceOf(m.params) - persistenceOf(params)) < 1e-3 &&
+        Math.abs(m.params.alpha - params.alpha) < 1e-3 &&
+        Math.abs(m.params.gamma - params.gamma) < 1e-3,
+    );
+    if (!same) modes.push({ params, value: run.value, converged: run.converged, fromWarmStart: start.warm, starts: 1 });
+    else {
+      same.starts += 1;
+      same.fromWarmStart ||= start.warm;
+      if (run.value < same.value) Object.assign(same, { params, value: run.value, converged: run.converged });
+    }
+  }
+  if (!modes.length) throw new GarchInputError('no starting point gave a finite likelihood');
+  return modes.sort((a, b) => a.value - b.value);
+}
+
+/** The modes as a fit reports them, log-likelihood back on the sum's scale. */
+function reportModes(modes: readonly ModeRun[], n: number, persistenceOf: (p: GarchParams) => number): GarchMode[] {
+  return modes.map((m) => ({
+    params: m.params,
+    persistence: persistenceOf(m.params),
+    logLikelihood: -m.value * n,
+    converged: m.converged,
+    fromWarmStart: m.fromWarmStart,
+    starts: m.starts,
+  }));
 }
