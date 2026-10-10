@@ -36,6 +36,12 @@ export type GarchFit = {
   readonly params: GarchParams;
   readonly persistence: number;
   readonly logLikelihood: number;
+  /** The free parameters the criteria count: μ, ω, α, β, γ (gjr, egarch), ν (t, unless held on a bound). */
+  readonly parameterCount: number;
+  /** −2·ln L + 2k, as `arch` reports it. */
+  readonly aic: number;
+  /** −2·ln L + k·ln n, as `arch` reports it. */
+  readonly bic: number;
   /** s_t for every observation, in the returns' units squared. */
   readonly conditionalVariance: Float64Array;
   /** e_T, the last residual. */
@@ -236,6 +242,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     params,
     persistence: persistence(params),
     logLikelihood: ll,
+    ...informationCriteria(ll, 4 + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0), n),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: bc,
@@ -356,6 +363,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
     params,
     persistence: params.beta,
     logLikelihood: ll,
+    ...informationCriteria(ll, 5, n),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: lnBc,
@@ -372,6 +380,11 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
       starts: m.starts,
     })),
   };
+}
+
+/** AIC and BIC of a log-likelihood with k free parameters over n observations. */
+function informationCriteria(ll: number, k: number, n: number) {
+  return { parameterCount: k, aic: -2 * ll + 2 * k, bic: -2 * ll + k * Math.log(n) };
 }
 
 /** Two runs stopped at the same optimum: the same likelihood and the same dynamics. */

@@ -28,6 +28,9 @@ export type VolatilityForecast = {
   readonly params: GarchParams;
   readonly persistence: number;
   readonly logLikelihood: number;
+  /** See `GarchFit`: −2·ln L + 2k and −2·ln L + k·ln n. */
+  readonly aic: number;
+  readonly bic: number;
   /** One per return, in the returns' units squared. */
   readonly conditionalVariance: number[];
   /** s_{T+1} … s_{T+h}; null when the fit did not converge. */
@@ -86,6 +89,8 @@ export function asOfFit(
     params: fit.params,
     persistence: fit.persistence,
     logLikelihood: fit.logLikelihood,
+    aic: fit.aic,
+    bic: fit.bic,
     conditionalVariance: Array.from(fit.conditionalVariance),
     forecast: fit.converged ? forecastVariance(fit, request.horizon) : null,
     gammaPValue: p !== undefined && Number.isFinite(p) ? p : null,

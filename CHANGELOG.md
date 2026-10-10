@@ -6,6 +6,11 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `GarchFit.aic`, `.bic` and `.parameterCount`; `aic` and `bic` on `asOfFit` /
+  `volatilityForecast` answers. They match `arch` on the fixture series.
+
 ## [0.1.0] - 2026-10-10
 
 The first public release.

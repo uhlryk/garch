@@ -51,6 +51,7 @@ What it does not do, deliberately:
 
 - **Backcast as in `arch`.** The recursion starts from an exponentially weighted (0.94) mean of the first 75 squared residuals.
 - **Analytic forecasts.** s_{T+k} = ω + (α + γ/2 + β)·s_{T+k−1}.
+- **AIC and BIC** as `arch` computes them, −2·ln L + 2k and −2·ln L + k·ln n, with k the free parameters (`parameterCount`): μ, ω, α, β, plus γ for gjr and egarch, plus ν for t unless it is held on a bound.
 - **Robust standard errors.** Bollerslev–Wooldridge, `arch`'s `cov_type="robust"`: analytic scores and a Hessian taken by differencing the analytic gradient.
 
 ### Student-t innovations (`dist: 't'`)
@@ -169,6 +170,7 @@ import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedFore
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
 fit.modes;                     // every optimum reached, best first
+fit.aic; fit.bic;              // as arch reports them; a ν held on a bound is not counted
 fitGarch(returns, { model: 'egarch', inference: true });          // γ < 0: leverage; normal innovations only
 fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t on the fine-grained history
 // → params.nu, nuBound: 'lower' | 'upper' | null

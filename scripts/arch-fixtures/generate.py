@@ -43,6 +43,10 @@ def fit(r: np.ndarray, vol: str, o: int):
     return arch_model(r, mean='Constant', vol=vol, p=1, o=o, q=1, dist='normal').fit(disp='off')
 
 
+def criteria(res) -> dict:
+    return {'loglik': float(res.loglikelihood), 'aic': float(res.aic), 'bic': float(res.bic)}
+
+
 def garch_answers(r: np.ndarray, o: int) -> dict:
     res = fit(r, 'GARCH', o)
     p = res.params
@@ -57,6 +61,7 @@ def garch_answers(r: np.ndarray, o: int) -> dict:
         'persistence': float(p['alpha[1]'] + (gamma or 0) / 2 + p['beta[1]']),
         'sigma_daily': float(np.sqrt(variance[0]) / 100),
         'sigma_horizon': float(np.sqrt(variance.sum()) / 100),
+        **criteria(res),
     }
 
 
@@ -105,6 +110,7 @@ def egarch_answers(r: np.ndarray) -> dict:
         'loglik': float(res.loglikelihood),
         'gamma_pvalue': float(res.pvalues['gamma[1]']),
         'converged': res.convergence_flag == 0,
+        **criteria(res),
         'variance_1': float(simulated[0]),
         'variance_20_simulated': [float(v) for v in simulated],
     }

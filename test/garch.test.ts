@@ -167,6 +167,15 @@ describe('against arch', () => {
         `p ${fit.inference!.pValues.gamma} vs ${a.gamma_pvalue}`,
       );
     });
+    it(`${name}: AIC and BIC, garch and gjr`, () => {
+      for (const model of ['garch', 'gjr'] as const) {
+        const fit = fitGarch(r, { model });
+        const a = s.arch[model];
+        assert.equal(fit.parameterCount, model === 'gjr' ? 5 : 4);
+        assert.ok(Math.abs(fit.aic - a.aic) < 1e-2, `${model} aic ${fit.aic} vs ${a.aic}`);
+        assert.ok(Math.abs(fit.bic - a.bic) < 1e-2, `${model} bic ${fit.bic} vs ${a.bic}`);
+      }
+    });
   }
   it('iova: the walk-forward QLIKE and its naive baseline', () => {
     const s = fixture.series.iova;
@@ -332,8 +341,10 @@ describe('Student-t innovations', () => {
     assert.equal(fit.nuBound, 'lower');
     assert.equal(fit.params.nu, T_NU_MIN);
     assert.equal(fit.converged, true);
+    assert.equal(fit.parameterCount, 4, 'a held ν is not a free parameter');
     const free = fitGarch(heavy, { dist: 't', nuMin: 2.05 });
     assert.equal(free.nuBound, null);
+    assert.equal(free.parameterCount, 5);
     assert.ok(free.params.nu! < T_NU_MIN, `ν ${free.params.nu}`);
     assert.throws(() => fitGarch(heavy, { dist: 't', nuMin: 2 }), RangeError);
   });
@@ -517,6 +528,7 @@ describe('EGARCH', () => {
         for (const key of ['alpha', 'gamma', 'beta'] as const) assert.ok(rel(fit.params[key], a[key]) < 1e-3, key);
         assert.ok(Math.abs(fit.params.mu - a.mu) < 1e-3 && rel(fit.params.omega, a.omega) < 0.02, 'μ, ω');
         assert.ok(rel(fit.inference!.pValues.gamma, a.gamma_pvalue) < 0.02, 'p(γ)');
+        assert.ok(Math.abs(fit.aic - a.aic) < 1e-2 && Math.abs(fit.bic - a.bic) < 1e-2, `aic ${fit.aic} vs ${a.aic}`);
         const forecast = forecastVariance(fit, 20);
         assert.ok(rel(forecast[0], a.variance_1) < 1e-3, 'step 1');
         // arch's 200 000 paths against the closed form: sampling noise only
