@@ -10,6 +10,8 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 
 - `GarchFit.aic`, `.bic` and `.parameterCount`; `aic` and `bic` on `asOfFit` /
   `volatilityForecast` answers. They match `arch` on the fixture series.
+- `simulate`: seeded paths of returns and variances for garch, gjr (normal or
+  Student-t) and egarch, from a fit's last state or the unconditional variance.
 
 ## [0.1.0] - 2026-10-10
 

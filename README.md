@@ -78,6 +78,16 @@ parameter with its analytic gradient and robust standard error.
 - **Against `arch` 8.0.0** (`test/fixtures/arch-egarch-2026-10-01.json`): the same optimum to ~1e-5 in α, γ, β, and an equal or slightly higher log-likelihood. γ's robust p-value agrees within 1 %. The closed-form forecast agrees with `arch`'s 200 000 simulated paths (seeded) to 0.02 % and 0.08 % at 20 steps.
 - **Its walk-forward baseline is symmetric GARCH,** like GJR's: is the asymmetry worth it?
 
+### Simulation
+
+`simulate` runs the model's own recursion forward: `paths` paths of `steps`
+returns, from where a fit stands (its last variance and residual, so step 1's
+variance is the one-step forecast) or from the unconditional variance. The
+innovations are normal, or Student-t scaled to unit variance when the
+parameters carry ν; an EGARCH with t is refused, as in fitting. One seeded
+stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
+platform. The paths' mean variance converges to `forecastVariance`.
+
 ## The optimiser, and why it has six starts
 
 BFGS with an analytic gradient runs in an unconstrained space where every point
@@ -165,7 +175,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## API
 
 ```ts
-import { egarchForecast, fitGarch, forecastVariance, quantizedUntil, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { egarchForecast, fitGarch, forecastVariance, quantizedUntil, simulate, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node';
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -174,6 +184,10 @@ fit.aic; fit.bic;              // as arch reports them; a ν held on a bound is 
 fitGarch(returns, { model: 'egarch', inference: true });          // γ < 0: leverage; normal innovations only
 fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t on the fine-grained history
 // → params.nu, nuBound: 'lower' | 'upper' | null
+
+// paths forward from where the fit stands (seeded); a FitAt from fitsAt spreads in as it is
+simulate({ model: 'gjr', params: fit.params, lastVariance: fit.conditionalVariance.at(-1), lastResidual: fit.lastResidual,
+           steps: 20, paths: 10_000, seed: 1 });   // → { returns, variance }: Float64Array per path
 
 // Node only: the walk-forward's segments across a pool of workers — the in-process answer, faster
 await volatilityForecastInWorkers({ returns, model: 'gjr', horizon: 20, rivalsWithin: 1.92 }, { timeoutMs: 120_000 });

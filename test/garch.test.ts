@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
-import { GarchInputError } from '../src/fit.js';
+import { type GarchFit, GarchInputError } from '../src/fit.js';
 import {
   asOfFit,
   backcast,
@@ -11,6 +11,7 @@ import {
   qlike,
   quantizedUntil,
   realizedVariance,
+  simulate as simulatePaths,
   T_NU_MIN,
   validationWindows,
   volatilityForecast,
@@ -32,31 +33,9 @@ import {
 import fixture from './fixtures/arch-2026-09-25.json';
 import egarchFixture from './fixtures/arch-egarch-2026-10-01.json';
 
-/** mulberry32 + Box–Muller: a seeded normal stream, so the simulated paths are fixed. */
-function normals(seed: number): () => number {
-  let a = seed >>> 0;
-  const uniform = () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  return () => Math.sqrt(-2 * Math.log(1 - uniform())) * Math.cos(2 * Math.PI * uniform());
-}
-
-function simulate(p: GarchParams, n: number, seed: number): number[] {
-  const z = normals(seed);
-  const out: number[] = [];
-  let s = p.omega / (1 - p.alpha - p.gamma / 2 - p.beta);
-  let e = 0;
-  for (let t = 0; t < n; t += 1) {
-    if (t > 0) s = p.omega + p.alpha * e * e + p.gamma * (e < 0 ? e * e : 0) + p.beta * s;
-    e = Math.sqrt(s) * z();
-    out.push(p.mu + e);
-  }
-  return out;
-}
+/** A seeded GARCH / GJR path from the unconditional variance. */
+const simulate = (params: GarchParams, n: number, seed: number) =>
+  Array.from(simulatePaths({ model: 'gjr', params, steps: n, paths: 1, seed }).returns[0]);
 
 const returnsOf = (closes: number[]) => closes.slice(1).map((c, i) => Math.log(c / closes[i]) * 100);
 const rel = (a: number, b: number) => Math.abs(a - b) / Math.max(Math.abs(b), 1e-12);
@@ -123,6 +102,52 @@ describe('forecastVariance', () => {
     const v = forecastVariance(fit, 2000);
     const unconditional = fit.params.omega / (1 - fit.persistence);
     assert.ok(rel(v[v.length - 1], unconditional) < 1e-6);
+  });
+});
+
+describe('simulate', () => {
+  const p: GarchParams = { mu: 0.02, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85 };
+  const from = { lastVariance: 2, lastResidual: -1.5 };
+  const meanOf = (paths: Float64Array[], k: number) => paths.reduce((a, v) => a + v[k], 0) / paths.length;
+
+  it('gives the same paths for the same seed, and other paths for another', () => {
+    const run = (seed: number) => simulatePaths({ model: 'gjr', params: p, steps: 50, paths: 3, seed });
+    assert.deepEqual(run(1), run(1));
+    assert.notDeepEqual(run(1).returns[0], run(2).returns[0]);
+  });
+
+  it('averages to the analytic forecast — gjr normal and t, egarch — from where a fit stands', () => {
+    const cases: { model: 'gjr' | 'egarch'; params: GarchParams }[] = [
+      { model: 'gjr', params: p },
+      { model: 'gjr', params: { ...p, nu: 5 } },
+      { model: 'egarch', params: { mu: 0, omega: 0.01, alpha: 0.15, gamma: -0.1, beta: 0.97 } },
+    ];
+    for (const { model, params } of cases) {
+      const sim = simulatePaths({ model, params, ...from, steps: 20, paths: 40_000, seed: 3 });
+      const fit = { model, params, lastResidual: from.lastResidual, conditionalVariance: Float64Array.of(2) };
+      const exact = forecastVariance(fit as unknown as GarchFit, 20);
+      assert.ok(rel(sim.variance[0][0], exact[0]) < 1e-12, `${model}: step 1 is the one-step forecast`);
+      for (const k of [1, 4, 19]) {
+        assert.ok(rel(meanOf(sim.variance, k), exact[k]) < 0.02, `${model} ν=${params.nu}: step ${k + 1}`);
+        const e2 = sim.returns.reduce((a, r) => a + (r[k] - params.mu) ** 2, 0) / sim.returns.length;
+        assert.ok(rel(e2, meanOf(sim.variance, k)) < 0.04, `${model} ν=${params.nu}: unit-variance innovations`);
+      }
+    }
+  });
+
+  it('starts at the unconditional variance without a fit to start from', () => {
+    const sim = simulatePaths({ model: 'garch', params: p, steps: 1, paths: 1, seed: 1 });
+    assert.ok(rel(sim.variance[0][0], p.omega / (1 - p.alpha - p.beta)) < 1e-12, 'garch ignores γ');
+  });
+
+  it('refuses what it cannot simulate', () => {
+    const base = { model: 'gjr' as const, params: p, steps: 10, paths: 1, seed: 1 };
+    assert.throws(() => simulatePaths({ ...base, steps: 0 }), RangeError);
+    assert.throws(() => simulatePaths({ ...base, paths: 1.5 }), RangeError);
+    assert.throws(() => simulatePaths({ ...base, lastVariance: 1 }), RangeError);
+    assert.throws(() => simulatePaths({ ...base, params: { ...p, nu: 2 } }), RangeError);
+    assert.throws(() => simulatePaths({ ...base, params: { ...p, beta: 0.95 } }), RangeError);
+    assert.throws(() => simulatePaths({ ...base, model: 'egarch', params: { ...p, nu: 8 } }), GarchInputError);
   });
 });
 
@@ -289,11 +314,8 @@ describe('the pool', () => {
 });
 
 describe('Student-t innovations', () => {
-  const tDraw = (z: () => number, nu: number) => {
-    let c = 0;
-    for (let i = 0; i < nu; i += 1) c += z() ** 2;
-    return (z() / Math.sqrt(c / nu)) * Math.sqrt((nu - 2) / nu);
-  };
+  const tPath = (nu: number, n: number, seed: number) =>
+    simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85, nu }, n, seed);
   it('has the analytic gradient its finite difference says, ν included', () => {
     const r = simulate({ mu: 0.05, omega: 0.1, alpha: 0.08, gamma: 0.1, beta: 0.85 }, 800, 14);
     const p: GarchParams = { mu: 0.03, omega: 0.12, alpha: 0.07, gamma: 0.05, beta: 0.86, nu: 6.5 };
@@ -307,15 +329,7 @@ describe('Student-t innovations', () => {
     });
   });
   it('recovers ν on a simulated t-GARCH path', () => {
-    const z = normals(15);
-    const r: number[] = [];
-    let s = 1;
-    let e = 0;
-    for (let t = 0; t < 6000; t += 1) {
-      if (t) s = 0.05 + 0.1 * e * e + 0.85 * s;
-      e = Math.sqrt(s) * tDraw(z, 5);
-      r.push(e);
-    }
+    const r = tPath(5, 6000, 15);
     const fit = fitGarch(r, { dist: 't' });
     assert.equal(fit.converged, true);
     assert.equal(fit.nuBound, null);
@@ -323,18 +337,7 @@ describe('Student-t innovations', () => {
     assert.ok(fit.logLikelihood > fitGarch(r).logLikelihood);
   });
 
-  const heavy = (() => {
-    const z = normals(16);
-    const r: number[] = [];
-    let s = 1;
-    let e = 0;
-    for (let t = 0; t < 5000; t += 1) {
-      if (t) s = 0.05 + 0.1 * e * e + 0.85 * s;
-      e = Math.sqrt(s) * tDraw(z, 3);
-      r.push(e);
-    }
-    return r;
-  })();
+  const heavy = tPath(3, 5000, 16);
 
   it('holds ν on its floor when the data want less, and says so — converged', () => {
     const fit = fitGarch(heavy, { dist: 't' });
@@ -350,10 +353,11 @@ describe('Student-t innovations', () => {
   });
 
   it('gives robust standard errors with ν among the parameters, and none for a held ν', () => {
-    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.03, gamma: 0.15, beta: 0.85 }, 4000, 17);
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.03, gamma: 0.15, beta: 0.85, nu: 8 }, 4000, 17);
     const fit = fitGarch(r, { model: 'gjr', dist: 't', inference: true });
     assert.equal(fit.nuBound, null);
-    assert.ok(fit.params.nu! > 20, `normal data, ν ${fit.params.nu}`);
+    assert.ok(Math.abs(fit.params.nu! - 8) < 3, `ν ${fit.params.nu}`);
+    assert.ok(fit.inference!.standardErrors.nu! > 0, `se(ν) ${fit.inference!.standardErrors.nu}`);
     assert.ok(fit.inference!.pValues.gamma < 0.01);
     const free = fitGarch(heavy, { model: 'gjr', dist: 't', nuMin: 2.05, inference: true });
     assert.ok(free.inference!.standardErrors.nu! > 0, `se(ν) ${free.inference!.standardErrors.nu}`);
@@ -451,19 +455,9 @@ describe('models weighted by their past loss', () => {
 
 describe('EGARCH', () => {
   const p: GarchParams = { mu: 0.02, omega: 0.01, alpha: 0.15, gamma: -0.12, beta: 0.97 };
-  /** An EGARCH path from its own recursion. */
-  const path = (n: number, seed: number) => {
-    const z = normals(seed);
-    const out: number[] = [];
-    let L = p.omega / (1 - p.beta);
-    let prev = 0;
-    for (let t = 0; t < n; t += 1) {
-      if (t > 0) L = p.omega + p.alpha * (Math.abs(prev) - Math.sqrt(2 / Math.PI)) + p.gamma * prev + p.beta * L;
-      prev = z();
-      out.push(p.mu + Math.exp(L / 2) * prev);
-    }
-    return out;
-  };
+  /** An EGARCH path from the unconditional log-variance. */
+  const path = (n: number, seed: number) =>
+    Array.from(simulatePaths({ model: 'egarch', params: p, steps: n, paths: 1, seed }).returns[0]);
 
   it('has the analytic gradient its finite difference says', () => {
     const r = path(800, 3);
@@ -491,18 +485,17 @@ describe('EGARCH', () => {
 
   it('forecasts the expected variance exactly — the closed form against its own Monte Carlo', () => {
     const exact = egarchForecast(p, 2.5, -3, 20);
-    const z = normals(5);
     const sims = 100_000;
-    const mean = new Array<number>(20).fill(0);
-    for (let k = 0; k < sims; k += 1) {
-      let L = Math.log(exact[0]);
-      mean[0] += exact[0] / sims;
-      for (let h = 1; h < 20; h += 1) {
-        const shock = z();
-        L = p.omega + p.alpha * (Math.abs(shock) - Math.sqrt(2 / Math.PI)) + p.gamma * shock + p.beta * L;
-        mean[h] += Math.exp(L) / sims;
-      }
-    }
+    const { variance } = simulatePaths({
+      model: 'egarch',
+      params: p,
+      lastVariance: 2.5,
+      lastResidual: -3,
+      steps: 20,
+      paths: sims,
+      seed: 5,
+    });
+    const mean = exact.map((_, h) => variance.reduce((a, v) => a + v[h], 0) / sims);
     for (const h of [1, 9, 19]) assert.ok(rel(exact[h], mean[h]) < 0.01, `step ${h + 1}: ${exact[h]} vs ${mean[h]}`);
     // the first step is the recursion on the observed shock
     const z0 = -3 / Math.sqrt(2.5);

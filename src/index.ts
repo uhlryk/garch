@@ -34,6 +34,7 @@ export {
 } from './model.js';
 export { type QuantizationOptions, quantizedUntil } from './quality.js';
 export type { JobName, JobRequest, JobResult } from './registry.js';
+export { type Simulation, type SimulationRequest, simulate } from './simulate.js';
 export {
   type Baseline,
   type ForecastsRequest,
