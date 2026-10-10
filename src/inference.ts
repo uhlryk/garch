@@ -1,5 +1,5 @@
-import type { Inference } from './fit';
-import { type GarchParams, logLikelihoodGradient } from './model';
+import type { Inference } from './fit.js';
+import { type GarchParams, logLikelihoodGradient } from './model.js';
 
 /** The log-likelihood and its gradient over (μ, ω, α, γ, β[, ν]), per-observation scores when asked. */
 export type LikelihoodGradient = (

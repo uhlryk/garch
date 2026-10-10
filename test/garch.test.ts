@@ -16,8 +16,8 @@ import {
   qlike,
   volatilityForecast,
   walkForwardOrigins,
-} from '../src/index';
-import { logLikelihood, logLikelihoodGradient, type GarchParams } from '../src/model';
+} from '../src/index.js';
+import { logLikelihood, logLikelihoodGradient, type GarchParams } from '../src/model.js';
 import {
   fitsAtInWorkers,
   GarchJobInputError,
@@ -26,11 +26,11 @@ import {
   runInWorker,
   volatilityForecastInWorkers,
   weightedForecastInWorkers,
-} from '../src/node';
+} from '../src/node.js';
 import fixture from './fixtures/arch-2026-09-25.json';
 import egarchFixture from './fixtures/arch-egarch-2026-10-01.json';
-import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch';
-import { GarchInputError } from '../src/fit';
+import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
+import { GarchInputError } from '../src/fit.js';
 
 /** mulberry32 + Box–Muller: a seeded normal stream, so the simulated paths are fixed. */
 function normals(seed: number): () => number {

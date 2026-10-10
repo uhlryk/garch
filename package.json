@@ -1,34 +1,78 @@
 {
-  "name": "@smi/garch",
+  "name": "@krzysztofsztompka/garch",
   "version": "0.1.0",
-  "private": true,
-  "description": "GARCH(1,1) / GJR-GARCH(1,1) by maximum likelihood, with walk-forward validation — pure TypeScript, no runtime dependencies",
-  "license": "UNLICENSED",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "description": "GARCH(1,1), GJR-GARCH(1,1) and EGARCH(1,1,1) by maximum likelihood, with walk-forward validation — pure TypeScript, no runtime dependencies",
+  "keywords": [
+    "garch",
+    "gjr-garch",
+    "egarch",
+    "volatility",
+    "forecast",
+    "time-series",
+    "finance",
+    "maximum-likelihood",
+    "walk-forward"
+  ],
+  "author": "Krzysztof Sztompka",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uhlryk/garch.git"
+  },
+  "homepage": "https://github.com/uhlryk/garch#readme",
+  "bugs": "https://github.com/uhlryk/garch/issues",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     },
     "./node": {
-      "types": "./dist/node.d.ts",
-      "default": "./dist/node.js"
+      "import": {
+        "types": "./dist/esm/node.d.ts",
+        "default": "./dist/esm/node.js"
+      },
+      "require": {
+        "types": "./dist/cjs/node.d.ts",
+        "default": "./dist/cjs/node.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "node": [
+        "./dist/cjs/node.d.ts"
+      ]
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
+  "sideEffects": false,
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json && tsc -p tsconfig.esm.json && node build/finish.mjs",
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test 'dist-test/test/**/*.test.js'"
+    "test": "tsc -p tsconfig.test.json && node --test 'dist-test/test/**/*.test.js'",
+    "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
     "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

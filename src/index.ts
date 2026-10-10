@@ -1,7 +1,7 @@
-export { type FitOptions, type GarchFit, GarchInputError, type GarchMode, type Inference, T_NU_MIN, fitGarch } from './fit';
-export { EGARCH_ABS_MEAN, egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch';
-export { forecastVariance } from './forecast';
-export { normalCdf, twoSidedPValue } from './inference';
+export { type FitOptions, type GarchFit, GarchInputError, type GarchMode, type Inference, T_NU_MIN, fitGarch } from './fit.js';
+export { EGARCH_ABS_MEAN, egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch.js';
+export { forecastVariance } from './forecast.js';
+export { normalCdf, twoSidedPValue } from './inference.js';
 export {
   type AsOfFit,
   type FitAt,
@@ -12,8 +12,8 @@ export {
   asOfFit,
   fitsAt,
   volatilityForecast,
-} from './jobs';
-export { type Distribution, type GarchModel, type GarchParams, backcast, digamma, logGamma, logLikelihood, logLikelihoodGradient, persistence } from './model';
+} from './jobs.js';
+export { type Distribution, type GarchModel, type GarchParams, backcast, digamma, logGamma, logLikelihood, logLikelihoodGradient, persistence } from './model.js';
 export {
   type Baseline,
   type Validation,
@@ -31,9 +31,9 @@ export {
   walkForwardSteps,
   type WalkForwardStep,
   walkForwardValidation,
-} from './validation';
-export { type QuantizationOptions, quantizedUntil } from './quality';
-export { type JobName, type JobRequest, type JobResult } from './registry';
+} from './validation.js';
+export { type QuantizationOptions, quantizedUntil } from './quality.js';
+export { type JobName, type JobRequest, type JobResult } from './registry.js';
 export {
   type ModelSpec,
   type WeightedForecast,
@@ -44,5 +44,5 @@ export {
   WEIGHTED_MODELS,
   weighForecasts,
   weightedForecast,
-} from './weighted';
+} from './weighted.js';
 

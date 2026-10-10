@@ -1,10 +1,10 @@
-import { fitGarch, type GarchFit } from './fit';
-import { forecastVariance } from './forecast';
-import { egarchLogLikelihood } from './egarch';
-import { type Distribution, type GarchModel, type GarchParams, logLikelihood } from './model';
-import { type FitAt, segments, type Validation, walkForwardValidation } from './validation';
+import { fitGarch, type GarchFit } from './fit.js';
+import { forecastVariance } from './forecast.js';
+import { egarchLogLikelihood } from './egarch.js';
+import { type Distribution, type GarchModel, type GarchParams, logLikelihood } from './model.js';
+import { type FitAt, segments, type Validation, walkForwardValidation } from './validation.js';
 
-export type { FitAt } from './validation';
+export type { FitAt } from './validation.js';
 
 /**
  * The two whole questions a caller asks, as plain data in and out — so they

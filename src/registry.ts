@@ -1,8 +1,8 @@
-import { asOfFit, fitsAt, fitsAtSegment, volatilityForecast } from './jobs';
-import { walkForwardForecasts, walkForwardSteps } from './validation';
-import { weightedAsOf, weightedForecast } from './weighted';
+import { asOfFit, fitsAt, fitsAtSegment, volatilityForecast } from './jobs.js';
+import { walkForwardForecasts, walkForwardSteps } from './validation.js';
+import { weightedAsOf, weightedForecast } from './weighted.js';
 
-/** What a worker can be asked; a segment is the unit `@smi/garch/node` spreads across cores. */
+/** What a worker can be asked; a segment is the unit `@krzysztofsztompka/garch/node` spreads across cores. */
 export const JOBS = {
   volatilityForecast,
   asOfFit,

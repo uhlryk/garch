@@ -1,5 +1,5 @@
-import { normalCdf } from './inference';
-import type { GarchParams } from './model';
+import { normalCdf } from './inference.js';
+import type { GarchParams } from './model.js';
 
 /**
  * EGARCH(1,1,1) — Nelson's exponential GARCH with a constant mean and normal

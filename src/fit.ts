@@ -1,5 +1,5 @@
-import { egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch';
-import { robustStandardErrors } from './inference';
+import { egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch.js';
+import { robustStandardErrors } from './inference.js';
 import {
   backcast,
   type Distribution,
@@ -8,8 +8,8 @@ import {
   logLikelihood,
   logLikelihoodGradient,
   persistence,
-} from './model';
-import { bfgs } from './optimize';
+} from './model.js';
+import { bfgs } from './optimize.js';
 
 export class GarchInputError extends Error {}
 

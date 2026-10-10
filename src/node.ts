@@ -1,23 +1,23 @@
 /**
- * Node-only entry (`@smi/garch/node`): jobs on worker threads, so a
+ * Node-only entry (`@krzysztofsztompka/garch/node`): jobs on worker threads, so a
  * walk-forward that takes minutes neither holds the caller's event loop nor
  * runs on one core. A pool of reused workers takes the segments a walk-forward
  * is cut into (`SEGMENT_ORIGINS`) — the answer is the same as in-process, on any
  * number of cores.
  */
 import { availableParallelism } from 'node:os';
-import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { AsOfFit, FitAt, VolatilityForecast, VolatilityForecastRequest } from './jobs';
-import { baselineOf } from './jobs';
-import type { JobName, JobRequest, JobResult } from './registry';
+import type { AsOfFit, FitAt, VolatilityForecast, VolatilityForecastRequest } from './jobs.js';
+import { baselineOf } from './jobs.js';
+import type { JobName, JobRequest, JobResult } from './registry.js';
 import {
   assembleWeighted,
   type WeightedForecast,
   type WeightedForecastRequest,
   WEIGHTED_MODELS,
-} from './weighted';
-import { segments, scoreWalkForward, validationWindows, type WalkForwardStep } from './validation';
+} from './weighted.js';
+import { segments, scoreWalkForward, validationWindows, type WalkForwardStep } from './validation.js';
+import { workerFile } from './worker-file.js';
 
 /** The job was refused on its input (too little history, a bad number) — the caller's to word. */
 export class GarchJobInputError extends Error {}
@@ -129,7 +129,7 @@ export class GarchPool {
   }
 
   private spawn(): Slot {
-    const slot: Slot = { worker: new Worker(join(__dirname, 'worker.js')), task: null };
+    const slot: Slot = { worker: new Worker(workerFile), task: null };
     slot.worker.unref();
     slot.worker.on('message', (answer: Answer) => {
       const task = slot.task;

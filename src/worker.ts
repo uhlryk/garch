@@ -3,8 +3,8 @@
  * Loaded by `runInWorker` (./node) from the built package.
  */
 import { parentPort } from 'node:worker_threads';
-import { JOBS, type JobName } from './registry';
-import { GarchInputError } from './fit';
+import { JOBS, type JobName } from './registry.js';
+import { GarchInputError } from './fit.js';
 
 type Message = { readonly job: JobName; readonly request: unknown };
 

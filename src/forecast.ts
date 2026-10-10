@@ -1,6 +1,6 @@
-import { egarchForecast } from './egarch';
-import type { GarchFit } from './fit';
-import { persistence } from './model';
+import { egarchForecast } from './egarch.js';
+import type { GarchFit } from './fit.js';
+import { persistence } from './model.js';
 
 /**
  * Per-step variance forecasts s_{T+1} … s_{T+h}, analytic: the first step

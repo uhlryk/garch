@@ -1,5 +1,5 @@
-import { type AsOfFit, asOfFit } from './jobs';
-import type { Distribution, GarchModel } from './model';
+import { type AsOfFit, asOfFit } from './jobs.js';
+import type { Distribution, GarchModel } from './model.js';
 import {
   type FitAt,
   realizedVariance,
@@ -10,7 +10,7 @@ import {
   type WalkForwardStep,
   walkForwardSteps,
   type Window,
-} from './validation';
+} from './validation.js';
 
 /**
  * Several models weighted by how well each has forecast so far (#1113).
@@ -196,7 +196,7 @@ function safeAsOf(returns: ArrayLike<number>, spec: ModelSpec, horizon: number):
   }
 }
 
-/** The weighted forecast in this thread; `@smi/garch/node` gives the same answer on the pool. */
+/** The weighted forecast in this thread; `@krzysztofsztompka/garch/node` gives the same answer on the pool. */
 export function weightedForecast(request: WeightedForecastRequest): WeightedForecast {
   const specs = request.models ?? WEIGHTED_MODELS;
   const returns = Float64Array.from(request.returns);

@@ -1,6 +1,6 @@
-import { fitGarch, type GarchFit } from './fit';
-import { forecastVariance } from './forecast';
-import type { Distribution, GarchModel, GarchParams } from './model';
+import { fitGarch, type GarchFit } from './fit.js';
+import { forecastVariance } from './forecast.js';
+import type { Distribution, GarchModel, GarchParams } from './model.js';
 
 /**
  * Walk-forward, out of sample: is the forecast worth quoting? The same
@@ -202,7 +202,7 @@ export function validationWindows(n: number, options: Pick<ValidationOptions, 'h
  * At every origin: fit on [0, origin], forecast the mean variance of the next
  * `horizon` returns, score it and the baseline by QLIKE against what they
  * realised — segment by segment (`SEGMENT_ORIGINS`), in this thread. The model's
- * segments and the baseline's are independent series of fits; `@smi/garch/node`
+ * segments and the baseline's are independent series of fits; `@krzysztofsztompka/garch/node`
  * runs each on its own worker for the same answer.
  */
 export function walkForwardValidation(returns: ArrayLike<number>, options: ValidationOptions): Validation {
