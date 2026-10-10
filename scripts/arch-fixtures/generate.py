@@ -16,11 +16,13 @@ from __future__ import annotations
 import datetime
 import json
 import sys
+import warnings
 from pathlib import Path
 
 import arch
 import numpy as np
 from arch import arch_model
+from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'test' / 'fixtures'
 GARCH_FIXTURE = FIXTURES / 'arch-2026-09-25.json'
@@ -32,6 +34,7 @@ MIN_TRAIN = 500
 STEP = 10
 SIMULATIONS = 200_000
 SEED = 20261001
+DIAGNOSTIC_LAGS = 10
 
 
 def returns_of(closes: list[float]) -> np.ndarray:
@@ -45,6 +48,20 @@ def fit(r: np.ndarray, vol: str, o: int):
 
 def criteria(res) -> dict:
     return {'loglik': float(res.loglikelihood), 'aic': float(res.aic), 'bic': float(res.bic)}
+
+
+def diagnostics(res) -> dict:
+    """Ljung–Box on z and z², ARCH-LM on z, over the fit's standardised residuals."""
+    z = np.asarray(res.std_resid)
+    out = {'lags': DIAGNOSTIC_LAGS}
+    for key, series in (('ljung_box_z', z), ('ljung_box_z2', z**2)):
+        lb = acorr_ljungbox(series, lags=[DIAGNOSTIC_LAGS])
+        out[key] = {'statistic': float(lb['lb_stat'].iloc[0]), 'p_value': float(lb['lb_pvalue'].iloc[0])}
+    with warnings.catch_warnings():  # statsmodels 0.15 warns that het_arch's tuple will become a NamedTuple
+        warnings.simplefilter('ignore', FutureWarning)
+        lm, p, _, _ = het_arch(z, nlags=DIAGNOSTIC_LAGS)
+    out['arch_lm'] = {'statistic': float(lm), 'p_value': float(p)}
+    return out
 
 
 def garch_answers(r: np.ndarray, o: int) -> dict:
@@ -62,6 +79,7 @@ def garch_answers(r: np.ndarray, o: int) -> dict:
         'sigma_daily': float(np.sqrt(variance[0]) / 100),
         'sigma_horizon': float(np.sqrt(variance.sum()) / 100),
         **criteria(res),
+        'diagnostics': diagnostics(res),
     }
 
 

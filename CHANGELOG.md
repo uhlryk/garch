@@ -12,6 +12,8 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   `volatilityForecast` answers. They match `arch` on the fixture series.
 - `simulate`: seeded paths of returns and variances for garch, gjr (normal or
   Student-t) and egarch, from a fit's last state or the unconditional variance.
+- Residual diagnostics: `standardizedResiduals`, `ljungBox`, `archLm` and
+  `chiSquareSurvival`, matching statsmodels and scipy.
 
 ## [0.1.0] - 2026-10-10
 

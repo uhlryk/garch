@@ -88,6 +88,15 @@ parameters carry ν; an EGARCH with t is refused, as in fitting. One seeded
 stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
 platform. The paths' mean variance converges to `forecastVariance`.
 
+### Residual diagnostics
+
+`standardizedResiduals(fit, returns)` gives z_t = (r_t − μ)/√s_t. `ljungBox`
+(on z for the mean, on z² for the variance) and `archLm` (Engle's LM test on
+z) say whether the model left anything behind; each returns the statistic, its
+χ² degrees of freedom and the p-value. They follow statsmodels'
+`acorr_ljungbox` and `het_arch` and agree with them on the fixture series to
+1e-3; `chiSquareSurvival` agrees with scipy to 1e-12.
+
 ## The optimiser, and why it has six starts
 
 BFGS with an analytic gradient runs in an unconstrained space where every point
@@ -175,7 +184,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## API
 
 ```ts
-import { egarchForecast, fitGarch, forecastVariance, quantizedUntil, simulate, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { archLm, egarchForecast, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, standardizedResiduals, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node';
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -188,6 +197,10 @@ fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t 
 // paths forward from where the fit stands (seeded); a FitAt from fitsAt spreads in as it is
 simulate({ model: 'gjr', params: fit.params, lastVariance: fit.conditionalVariance.at(-1), lastResidual: fit.lastResidual,
            steps: 20, paths: 10_000, seed: 1 });   // → { returns, variance }: Float64Array per path
+
+const z = standardizedResiduals(fit, returns);
+ljungBox(z.map((v) => v * v), 10);   // → { statistic, df, pValue }: ARCH left in the residuals?
+archLm(z, 10);
 
 // Node only: the walk-forward's segments across a pool of workers — the in-process answer, faster
 await volatilityForecastInWorkers({ returns, model: 'gjr', horizon: 20, rivalsWithin: 1.92 }, { timeoutMs: 120_000 });
@@ -214,6 +227,8 @@ There is no test framework dependency.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
+- **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal and t) and EGARCH, and their innovations have unit variance.
+- **Residual diagnostics.** Ljung–Box and ARCH-LM against statsmodels on the fixture series; the χ² tail against scipy; ARCH found in a GARCH path and none left in its standardised residuals.
 - **Against `arch`.** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes (to 2026-09-23) and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
 - **The fixtures are regenerated, not hand-written.** `scripts/arch-fixtures/generate.py` reads the closes from the fixture and rewrites `arch`'s answers in both files, with the versions in its `requirements.txt` (`arch` 8.0.0) and a seeded simulation, recording both in each file's `source`:
 

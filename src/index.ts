@@ -1,3 +1,10 @@
+export {
+  archLm,
+  chiSquareSurvival,
+  ljungBox,
+  standardizedResiduals,
+  type TestResult,
+} from './diagnostics.js';
 export { EGARCH_ABS_MEAN, egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch.js';
 export {
   type FitOptions,

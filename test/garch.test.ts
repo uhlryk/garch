@@ -3,16 +3,21 @@ import { describe, it } from 'node:test';
 import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
 import { type GarchFit, GarchInputError } from '../src/fit.js';
 import {
+  archLm,
   asOfFit,
   backcast,
+  chiSquareSurvival,
   fitGarch,
   fitsAt,
   forecastVariance,
+  ljungBox,
   qlike,
   quantizedUntil,
   realizedVariance,
   simulate as simulatePaths,
+  standardizedResiduals,
   T_NU_MIN,
+  type TestResult,
   validationWindows,
   volatilityForecast,
   WEIGHTED_MODELS,
@@ -105,6 +110,48 @@ describe('forecastVariance', () => {
   });
 });
 
+describe('residual diagnostics', () => {
+  it('refers a statistic to χ² in its upper tail, as scipy does', () => {
+    for (const [x, df, p] of [
+      [18.307, 10, 0.05000058909139812],
+      [3.841, 1, 0.050013683763956804],
+      [0.5, 3, 0.9188914116546758],
+      [300, 20, 8.082849629775851e-52],
+    ])
+      assert.ok(rel(chiSquareSurvival(x, df), p) < 1e-12, `χ²(${df}) > ${x}`);
+    assert.equal(chiSquareSurvival(0, 5), 1);
+  });
+
+  it('finds the ARCH effect in a GARCH path, and none left in its standardised residuals', () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 4000, 21);
+    assert.ok(archLm(r, 10).pValue < 1e-6);
+    assert.ok(
+      ljungBox(
+        r.map((v) => v * v),
+        10,
+      ).pValue < 1e-6,
+    );
+    const z = standardizedResiduals(fitGarch(r), r);
+    assert.ok(archLm(z, 10).pValue > 0.01);
+    assert.ok(
+      ljungBox(
+        z.map((v) => v * v),
+        10,
+      ).pValue > 0.01,
+    );
+    assert.equal(ljungBox(z, 10, 2).df, 8);
+  });
+
+  it('refuses lags it cannot test', () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 50, 22);
+    assert.throws(() => ljungBox(r, 0), RangeError);
+    assert.throws(() => ljungBox(r, 50), RangeError);
+    assert.throws(() => ljungBox(r, 5, 5), RangeError);
+    assert.throws(() => archLm(r, 2.5), RangeError);
+    assert.throws(() => standardizedResiduals(fitGarch(r), r.slice(1)), RangeError);
+  });
+});
+
 describe('simulate', () => {
   const p: GarchParams = { mu: 0.02, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85 };
   const from = { lastVariance: 2, lastResidual: -1.5 };
@@ -191,6 +238,26 @@ describe('against arch', () => {
         rel(fit.inference!.pValues.gamma, a.gamma_pvalue!) < 0.02,
         `p ${fit.inference!.pValues.gamma} vs ${a.gamma_pvalue}`,
       );
+    });
+    it(`${name}: Ljung–Box on z and z², ARCH-LM on z — statsmodels' answers on arch's residuals`, () => {
+      const fit = fitGarch(r, { model: 'gjr' });
+      const z = standardizedResiduals(fit, r);
+      const d = s.arch.gjr.diagnostics;
+      const check = (label: string, got: TestResult, want: { statistic: number; p_value: number }) => {
+        assert.equal(got.df, d.lags);
+        assert.ok(rel(got.statistic, want.statistic) < 1e-3, `${label}: ${got.statistic} vs ${want.statistic}`);
+        assert.ok(rel(got.pValue, want.p_value) < 1e-3, `${label} p: ${got.pValue} vs ${want.p_value}`);
+      };
+      check('Q(z)', ljungBox(z, d.lags), d.ljung_box_z);
+      check(
+        'Q(z²)',
+        ljungBox(
+          z.map((v) => v * v),
+          d.lags,
+        ),
+        d.ljung_box_z2,
+      );
+      check('LM', archLm(z, d.lags), d.arch_lm);
     });
     it(`${name}: AIC and BIC, garch and gjr`, () => {
       for (const model of ['garch', 'gjr'] as const) {
