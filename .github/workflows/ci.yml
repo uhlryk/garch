@@ -29,4 +29,4 @@ jobs:
           mkdir -p ../consumer && cd ../consumer && npm init -y >/dev/null
           npm install ../garch/*.tgz
           node -e "const g = require('@krzysztofsztompka/garch'); require('@krzysztofsztompka/garch/node'); if (typeof g.fitGarch !== 'function') process.exit(1)"
-          node --input-type=module -e "import { fitGarch } from '@krzysztofsztompka/garch'; import '@krzysztofsztompka/garch/node'; if (typeof fitGarch !== 'function') process.exit(1)"
+          node --input-type=module -e "import { fitGarch } from '@krzysztofsztompka/garch'; import '@krzysztofsztompka/garch/node'; import { GarchWebPool } from '@krzysztofsztompka/garch/web'; if (typeof GarchWebPool !== 'function' || typeof fitGarch !== 'function') process.exit(1)"

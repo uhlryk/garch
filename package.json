@@ -45,6 +45,12 @@
         "default": "./dist/cjs/node.js"
       }
     },
+    "./web": {
+      "import": {
+        "types": "./dist/esm/web.d.ts",
+        "default": "./dist/esm/web.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {

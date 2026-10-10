@@ -19,6 +19,9 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   Christoffersen); `normalQuantile`, `studentCdf`, `studentQuantile`.
 - A zero mean, `mean: 'zero'`, for every model and through the walk-forward,
   the pool and the weighted forecast; `GarchFit.mean` says which was fitted.
+- `@krzysztofsztompka/garch/web`: the worker pool on Web Workers
+  (`GarchWebPool`, ES modules only), bundled by Vite and webpack without
+  configuration. `WorkerPool` is the transport-independent pool both share.
 
 ### Changed
 

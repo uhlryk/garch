@@ -10,7 +10,8 @@ npm install @krzysztofsztompka/garch
 ```
 
 Node ≥ 20. The core (`@krzysztofsztompka/garch`) runs anywhere; the worker pool
-(`@krzysztofsztompka/garch/node`) needs Node's `worker_threads`.
+comes as `@krzysztofsztompka/garch/node` (Node's `worker_threads`) and
+`@krzysztofsztompka/garch/web` (Web Workers, ES modules only).
 
 ## Quick start
 
@@ -158,6 +159,18 @@ On an i7-13700K, Node 24, 23 workers, one core → pool:
 | egarch | 51.7 s | 3.9 s |
 | weighted (`-- --weighted`) | 122 s | 11.2 s |
 
+### In the browser
+
+`@krzysztofsztompka/garch/web` is the same pool on Web Workers: `GarchWebPool`
+(default: every logical core but one) and the same calls —
+`volatilityForecastInWorkers`, `fitsAtInWorkers`, `weightedForecastInWorkers`,
+`runInWorker` — with the in-process answer. The worker is started as
+`new Worker(new URL('./worker-web.js', import.meta.url), { type: 'module' })`,
+written out literally, so Vite and webpack bundle it without configuration;
+both were checked in Chrome. A bundler that needs the worker its own way passes
+`new GarchWebPool(size, () => new Worker(...))`. Node's pool and this one share
+one implementation of the queue, deadline and cancellation (`WorkerPool`).
+
 ## Several models, weighted by their past loss
 
 `weightedForecast` / `weightedForecastInWorkers` fit {garch, gjr} × {normal, t}
@@ -260,6 +273,7 @@ There is no test framework dependency.
 - **Weighting.** Equal weights before the burn-in; the better model dominates after it; changing a forecast whose window ends after an origin does not move that origin's weights; the pool's answer equals the in-process one.
 - **EGARCH.** The gradient against finite differences. A simulated path's parameters, leverage sign included. The closed-form forecast against its own Monte Carlo. `arch` 8.0.0's optimum, γ p-value and simulated forecast. A t EGARCH refused.
 - **Quantized history.** On IOVA's frozen closes: the cut lands where the reverse-split cents end, t degenerates before it (ω ≈ 0 while `converged`), and fits cleanly after it.
+- **The web pool.** Through a Web Worker made of a worker thread: the walk-forward identical to in-process, an input refusal and a deadline carried as on Node.
 - **The pool.** The walk-forward and `fitsAt` bit-identical to in-process on pools of 1 and 3 workers; one refused job fails its whole call; the pool keeps working after a call timed out.
 
 ## Build

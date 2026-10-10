@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { Worker } from 'node:worker_threads';
 import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
 import { type GarchFit, GarchInputError } from '../src/fit.js';
 import {
@@ -41,6 +43,11 @@ import {
   volatilityForecastInWorkers,
   weightedForecastInWorkers,
 } from '../src/node.js';
+import {
+  GarchWebPool,
+  volatilityForecastInWorkers as volatilityForecastInWebWorkers,
+  type WebWorker,
+} from '../src/web.js';
 import fixture from './fixtures/arch-2026-09-25.json';
 import egarchFixture from './fixtures/arch-egarch-2026-10-01.json';
 
@@ -435,6 +442,64 @@ describe('the modes of the likelihood', () => {
     }
     assert.deepEqual(asOfFit({ returns: sim, model: 'gjr', horizon: 5, rivalsWithin: 0 }).rivals, []);
     assert.deepEqual(asOfFit({ returns: sim, model: 'gjr', horizon: 5 }).rivals, []);
+  });
+});
+
+/**
+ * A Web Worker as a page has one, made of a worker thread: \`self\` gets
+ * addEventListener / postMessage, then the built web worker entry runs.
+ */
+function webWorkerShim(): WebWorker {
+  const entry = JSON.stringify(join(__dirname, '../src/worker-web.js'));
+  const thread = new Worker(
+    `const { parentPort } = require('node:worker_threads');
+     globalThis.addEventListener = (type, listener) => {
+       if (type === 'message') parentPort.on('message', (data) => listener({ data }));
+     };
+     globalThis.postMessage = (message) => parentPort.postMessage(message);
+     require(${entry});`,
+    { eval: true },
+  );
+  return {
+    postMessage: (message) => thread.postMessage(message),
+    terminate: () => void thread.terminate(),
+    addEventListener: (type: string, listener: (event: { data?: unknown; message?: string }) => void) => {
+      if (type === 'message') thread.on('message', (data) => listener({ data }));
+      if (type === 'error') thread.on('error', (error) => listener({ message: error.message }));
+    },
+  };
+}
+
+describe('the web pool', () => {
+  it('answers the walk-forward exactly as in-process, on Web Workers', async () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85 }, 900, 25);
+    const request = { returns: r, model: 'gjr' as const, horizon: 10, minTrain: 600 };
+    const pool = new GarchWebPool(3, webWorkerShim);
+    try {
+      assert.deepEqual(await volatilityForecastInWebWorkers(request, { pool }), volatilityForecast(request));
+    } finally {
+      await pool.close();
+    }
+  });
+
+  it('carries an input refusal and a deadline as the node pool does', async () => {
+    const pool = new GarchWebPool(1, webWorkerShim);
+    try {
+      await assert.rejects(
+        volatilityForecastInWebWorkers({ returns: [1, 2, 3], horizon: 5 }, { pool }),
+        GarchJobInputError,
+      );
+      const long = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 3000, 26);
+      await assert.rejects(
+        volatilityForecastInWebWorkers({ returns: long, model: 'gjr', horizon: 5 }, { pool, timeoutMs: 50 }),
+        GarchJobTimeoutError,
+      );
+      const r = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 700, 27);
+      const request = { returns: r, horizon: 5, minTrain: 650 };
+      assert.deepEqual(await volatilityForecastInWebWorkers(request, { pool }), volatilityForecast(request));
+    } finally {
+      await pool.close();
+    }
   });
 });
 
