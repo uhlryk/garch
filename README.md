@@ -115,8 +115,16 @@ tasks share one deadline: past it, or on one task's refusal, its queued tasks
 are dropped and its running workers terminated, and the pool carries on. The
 heaviest segments (the longest train windows) are dispatched first.
 
-Measured on an i7-13700K (23 workers), one core → pool: S&P 500 (14 k returns)
-GJR 93 s → 10 s, GARCH 46 s → 5 s; SPY GJR 36 s → 4 s.
+`npm run bench` measures it on SPY's closes from the `arch` fixture (8 469
+returns, horizon 20) and asserts the pool's answer equals the in-process one.
+On an i7-13700K, Node 24, 23 workers, one core → pool:
+
+| job | one core | pool |
+|---|---|---|
+| garch | 15.8 s | 2.3 s |
+| gjr | 42.4 s | 4.0 s |
+| egarch | 51.7 s | 3.9 s |
+| weighted (`-- --weighted`) | 122 s | 11.2 s |
 
 ## Several models, weighted by their past loss
 
