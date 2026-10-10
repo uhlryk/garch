@@ -49,6 +49,7 @@ What it does not do, deliberately:
     r_t = μ + e_t,   e_t ~ N(0, s_t)
     s_t = ω + α·e²_{t−1} + γ·e²_{t−1}·[e_{t−1} < 0] + β·s_{t−1}      (γ = 0 for garch)
 
+- **A zero mean** (`mean: 'zero'`, `arch`'s `mean='Zero'`) holds μ at 0 for returns already demeaned; every model takes it, and so do the walk-forward, the pool and the weighted forecast. It matches `arch` on the fixture series.
 - **Backcast as in `arch`.** The recursion starts from an exponentially weighted (0.94) mean of the first 75 squared residuals.
 - **Analytic forecasts.** s_{T+k} = ω + (α + γ/2 + β)·s_{T+k−1}.
 - **AIC and BIC** as `arch` computes them, −2·ln L + 2k and −2·ln L + k·ln n, with k the free parameters (`parameterCount`): μ, ω, α, β, plus γ for gjr and egarch, plus ν for t unless it is held on a bound.
@@ -202,6 +203,7 @@ const fit = fitGarch(returns, { model: 'gjr', inference: true });
 fit.modes;                     // every optimum reached, best first
 fit.aic; fit.bic;              // as arch reports them; a ν held on a bound is not counted
 fitGarch(returns, { model: 'egarch', inference: true });          // γ < 0: leverage; normal innovations only
+fitGarch(returns, { model: 'gjr', mean: 'zero' });                // μ held at 0
 fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t on the fine-grained history
 // → params.nu, nuBound: 'lower' | 'upper' | null
 

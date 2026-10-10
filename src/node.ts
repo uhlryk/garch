@@ -196,13 +196,20 @@ export async function volatilityForecastInWorkers(
   const tasks = [
     {
       job: 'asOfFit' as const,
-      request: { returns, model, dist: request.dist, horizon: request.horizon, rivalsWithin: request.rivalsWithin },
+      request: {
+        returns,
+        model,
+        dist: request.dist,
+        mean: request.mean,
+        horizon: request.horizon,
+        rivalsWithin: request.rivalsWithin,
+      },
       weight: Infinity,
     },
     ...models.flatMap((m) =>
       origins.map((o) => ({
         job: 'walkForwardForecasts' as const,
-        request: { returns, model: m, dist: request.dist, horizon: request.horizon, origins: o },
+        request: { returns, model: m, dist: request.dist, mean: request.mean, horizon: request.horizon, origins: o },
         weight: cost(o),
       })),
     ),
@@ -228,7 +235,7 @@ export async function fitsAtInWorkers(
   const returns = Float64Array.from(request.returns);
   const tasks = segments(request.ends).map((ends) => ({
     job: 'fitsAtSegment' as const,
-    request: { returns, ends, model: request.model, dist: request.dist },
+    request: { returns, ends, model: request.model, dist: request.dist, mean: request.mean },
     weight: cost(ends) * (request.dist === 't' ? 2 : 1),
   }));
   const out = await (options.pool ?? defaultPool()).run<(FitAt | null)[]>(tasks, options.timeoutMs);
@@ -249,13 +256,20 @@ export async function weightedForecastInWorkers(
   const tasks = [
     ...specs.map((spec) => ({
       job: 'weightedAsOf' as const,
-      request: { returns, spec, horizon: request.horizon },
+      request: { returns, spec, horizon: request.horizon, mean: request.mean },
       weight: Infinity,
     })),
     ...specs.flatMap((spec) =>
       origins.map((o) => ({
         job: 'walkForwardSteps' as const,
-        request: { returns, model: spec.model, dist: spec.dist, horizon: request.horizon, origins: o },
+        request: {
+          returns,
+          model: spec.model,
+          dist: spec.dist,
+          mean: request.mean,
+          horizon: request.horizon,
+          origins: o,
+        },
         weight: cost(o) * (spec.dist === 't' ? 2 : 1),
       })),
     ),

@@ -1,6 +1,6 @@
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
-import type { Distribution, GarchModel, GarchParams } from './model.js';
+import type { Distribution, GarchModel, GarchParams, MeanModel } from './model.js';
 
 /**
  * Walk-forward, out of sample: is the forecast worth quoting? The same
@@ -70,6 +70,8 @@ export type Validation = {
 export type ValidationOptions = {
   readonly model: GarchModel;
   readonly dist?: Distribution;
+  /** A fitted constant (default) or zero; see `FitOptions.mean`. */
+  readonly mean?: MeanModel;
   readonly horizon: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -103,6 +105,8 @@ export type ForecastsRequest = {
   readonly returns: ArrayLike<number>;
   readonly model: GarchModel;
   readonly dist?: Distribution;
+  /** A fitted constant (default) or zero; see `FitOptions.mean`. */
+  readonly mean?: MeanModel;
   readonly horizon: number;
   /** Train-end indices, ascending; one segment (the caller cuts with `segments`). */
   readonly origins: readonly number[];
@@ -138,7 +142,7 @@ export function walkForwardSteps(request: ForecastsRequest): (WalkForwardStep | 
   const all = Float64Array.from(request.returns as ArrayLike<number>);
   let warm: GarchParams | null = null;
   return request.origins.map((origin) => {
-    const fit = safeFit(all.subarray(0, origin + 1), request.model, warm, request.dist);
+    const fit = safeFit(all.subarray(0, origin + 1), request.model, warm, request.dist, request.mean);
     if (!fit?.converged) return null;
     warm = fit.params;
     return {
@@ -213,7 +217,7 @@ export function walkForwardValidation(returns: ArrayLike<number>, options: Valid
   const windows = validationWindows(returns.length, options);
   const run = (m: GarchModel) =>
     segments(windows.map((w) => w.origin)).flatMap((origins) =>
-      walkForwardForecasts({ returns, model: m, dist: options.dist, horizon, origins }),
+      walkForwardForecasts({ returns, model: m, dist: options.dist, mean: options.mean, horizon, origins }),
     );
   return scoreWalkForward(returns, windows, horizon, run(model), options.baseline === 'garch' ? run('garch') : null);
 }
@@ -223,9 +227,10 @@ function safeFit(
   model: GarchModel,
   warm: GarchParams | null,
   dist?: Distribution,
+  mean?: MeanModel,
 ): GarchFit | null {
   try {
-    return fitGarch(train, { model, dist, warmStart: warm });
+    return fitGarch(train, { model, dist, mean, warmStart: warm });
   } catch {
     return null;
   }

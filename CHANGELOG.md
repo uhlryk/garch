@@ -17,6 +17,13 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 - Value at risk: `tailRisk` (one step, normal or t), `simulatedTailRisk`
   (multi-step, from paths), `varBacktest` and `coverageTest` (Kupiec,
   Christoffersen); `normalQuantile`, `studentCdf`, `studentQuantile`.
+- A zero mean, `mean: 'zero'`, for every model and through the walk-forward,
+  the pool and the weighted forecast; `GarchFit.mean` says which was fitted.
+
+### Changed
+
+- Robust standard errors take the set of fitted parameters, so a parameter
+  held fixed (μ under a zero mean, a ν on its bound) gets NaN.
 
 ## [0.1.0] - 2026-10-10
 

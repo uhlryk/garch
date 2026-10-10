@@ -42,8 +42,8 @@ def returns_of(closes: list[float]) -> np.ndarray:
     return np.log(c[1:] / c[:-1]) * 100
 
 
-def fit(r: np.ndarray, vol: str, o: int):
-    return arch_model(r, mean='Constant', vol=vol, p=1, o=o, q=1, dist='normal').fit(disp='off')
+def fit(r: np.ndarray, vol: str, o: int, mean: str = 'Constant'):
+    return arch_model(r, mean=mean, vol=vol, p=1, o=o, q=1, dist='normal').fit(disp='off')
 
 
 def criteria(res) -> dict:
@@ -81,6 +81,23 @@ def garch_answers(r: np.ndarray, o: int) -> dict:
         **criteria(res),
         'diagnostics': diagnostics(res),
     }
+
+
+def zero_mean_answers(r: np.ndarray) -> dict:
+    """Each model with mean='Zero': its parameters, likelihood, criteria and γ's robust p-value."""
+    out = {}
+    for model, vol, o in (('garch', 'GARCH', 0), ('gjr', 'GARCH', 1), ('egarch', 'EGARCH', 1)):
+        res = fit(r, vol, o, 'Zero')
+        p = res.params
+        out[model] = {
+            'omega': float(p['omega']),
+            'alpha': float(p['alpha[1]']),
+            'gamma': float(p['gamma[1]']) if o else None,
+            'beta': float(p['beta[1]']),
+            'gamma_pvalue': float(res.pvalues['gamma[1]']) if o else None,
+            **criteria(res),
+        }
+    return out
 
 
 def qlike(realized: np.ndarray, forecast: np.ndarray) -> float:
@@ -151,12 +168,17 @@ def main() -> None:
     for name, s in garch['series'].items():
         print(f'{name}: fitting', file=sys.stderr)
         r = returns_of(s['closes'])
-        s['arch'] = {'garch': {**garch_answers(r, 0), **walk_forward(r)}, 'gjr': garch_answers(r, 1)}
+        s['arch'] = {
+            'garch': {**garch_answers(r, 0), **walk_forward(r)},
+            'gjr': garch_answers(r, 1),
+            'zero_mean': zero_mean_answers(r),
+        }
         egarch['series'][name] = egarch_answers(r)
     garch['recorded'] = today
     garch['source'] = (
         f'daily closes as recorded; {versions}; '
-        "arch_model(mean='Constant', vol='GARCH', p=1, o=0|1, q=1, dist='normal').fit() on ×100 log returns, "
+        "arch_model(mean='Constant' (zero_mean: 'Zero'), vol='GARCH'|'EGARCH', p=1, o=0|1, q=1, dist='normal').fit() "
+        'on ×100 log returns, '
         f'walk-forward minTrain {MIN_TRAIN}, step {STEP}, horizon {HORIZON}; scripts/arch-fixtures/generate.py'
     )
     GARCH_FIXTURE.write_text(json.dumps(garch, ensure_ascii=False))

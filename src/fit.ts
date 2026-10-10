@@ -7,6 +7,7 @@ import {
   type GarchParams,
   logLikelihood,
   logLikelihoodGradient,
+  type MeanModel,
   persistence,
 } from './model.js';
 import { bfgs } from './optimize.js';
@@ -15,6 +16,8 @@ export class GarchInputError extends Error {}
 
 export type FitOptions = {
   readonly model?: GarchModel;
+  /** A fitted constant (default) or zero — μ held at 0. */
+  readonly mean?: MeanModel;
   /** The innovations: normal (default, `arch`'s) or Student-t with ν fitted. */
   readonly dist?: Distribution;
   /** The lowest ν a t fit may take (default `T_NU_MIN`); must exceed 2. */
@@ -32,11 +35,12 @@ export type Inference = {
 
 export type GarchFit = {
   readonly model: GarchModel;
+  readonly mean: MeanModel;
   readonly converged: boolean;
   readonly params: GarchParams;
   readonly persistence: number;
   readonly logLikelihood: number;
-  /** The free parameters the criteria count: μ, ω, α, β, γ (gjr, egarch), ν (t, unless held on a bound). */
+  /** The free parameters the criteria count: μ (constant mean), ω, α, β, γ (gjr, egarch), ν (t, unless held on a bound). */
   readonly parameterCount: number;
   /** −2·ln L + 2k, as `arch` reports it. */
   readonly aic: number;
@@ -117,7 +121,9 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     throw new RangeError(`nuMin must lie in (2, ${NU_MAX}), got ${nuMin}`);
   const nuSpan = NU_MAX - nuMin;
   const n = returns.length;
-  const { mean, variance } = moments(returns);
+  const zeroMean = options.mean === 'zero';
+  const { mean: sampleMean, variance } = moments(returns);
+  const mean = zeroMean ? 0 : sampleMean;
   const bc = backcast(returns, mean);
   const sig2 = new Float64Array(n);
 
@@ -159,8 +165,9 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       const th = asymmetric ? Math.tanh(x[4]) : 0;
       const q = P - P * s3;
       // α = q(1 − th), γ = 2q·th
+      // a zero mean: x0 starts at 0 with no gradient, so BFGS never moves it
       const gx = [
-        g[0],
+        zeroMean ? 0 : g[0],
         g[1] * p.omega,
         g[2] * (1 - th) * dq2 + g[3] * 2 * th * dq2 + g[4] * dBeta2,
         g[2] * (1 - th) * dq3 + g[3] * 2 * th * dq3 + g[4] * dBeta3,
@@ -199,7 +206,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   if (options.warmStart) {
     const w = options.warmStart;
     const nu = studentT ? Math.min(Math.max(w.nu ?? START_NU, nuMin), NU_MAX) : undefined;
-    const warm = { ...(asymmetric ? w : { ...w, gamma: 0 }), nu };
+    const warm = { ...(asymmetric ? w : { ...w, gamma: 0 }), nu, mu: zeroMean ? 0 : w.mu };
     if (warm.omega > 0 && warm.alpha >= 0 && warm.beta >= 0 && warm.alpha + warm.gamma >= 0 && persistence(warm) < 1)
       starts.push({ x: toX(warm), warm: true });
   }
@@ -238,15 +245,18 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   const ll = logLikelihood(returns, params, bc, sig2);
   return {
     model,
+    mean: zeroMean ? 'zero' : 'constant',
     converged: best.converged,
     params,
     persistence: persistence(params),
     logLikelihood: ll,
-    ...informationCriteria(ll, 4 + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0), n),
+    ...informationCriteria(ll, 3 + (zeroMean ? 0 : 1) + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0), n),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: bc,
-    inference: options.inference ? robustStandardErrors(returns, params, bc, asymmetric, studentT && !nuBound) : null,
+    inference: options.inference
+      ? robustStandardErrors(returns, params, bc, { gamma: asymmetric, nu: studentT && !nuBound, mu: !zeroMean })
+      : null,
     nuBound,
     modes: modes.map((m) => ({
       params: m.params,
@@ -297,7 +307,9 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
       'EGARCH takes normal innovations only: under Student-t the expected variance two steps ahead is infinite',
     );
   const n = returns.length;
-  const { mean, variance } = moments(returns);
+  const zeroMean = options.mean === 'zero';
+  const { mean: sampleMean, variance } = moments(returns);
+  const mean = zeroMean ? 0 : sampleMean;
   const lnVar = Math.log(variance);
   const lnBc = Math.log(backcast(returns, mean));
   const sig2 = new Float64Array(n);
@@ -316,7 +328,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
       return { value: Infinity, gradient: x.map(() => NaN) };
     const beta = p.beta;
     const level = lnVar + x[1];
-    const gx = [g[0], g[1] * (1 - beta), (g[4] - g[1] * level) * beta * (1 - beta), g[2], g[3]];
+    const gx = [zeroMean ? 0 : g[0], g[1] * (1 - beta), (g[4] - g[1] * level) * beta * (1 - beta), g[2], g[3]];
     return { value: -value / n, gradient: gx.map((v) => -v / n) };
   };
   const starts: { x: number[]; warm: boolean }[] = [];
@@ -332,7 +344,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
   }
   const w = options.warmStart;
   if (w && w.beta > 0 && w.beta < 1 && [w.mu, w.omega, w.alpha, w.gamma].every(Number.isFinite))
-    starts.push({ x: toX(w), warm: true });
+    starts.push({ x: toX(zeroMean ? { ...w, mu: 0 } : w), warm: true });
   const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] =
     [];
   for (const start of starts) {
@@ -359,16 +371,23 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
   const ll = egarchLogLikelihood(returns, params, lnBc, sig2);
   return {
     model: 'egarch',
+    mean: zeroMean ? 'zero' : 'constant',
     converged: modes[0].converged,
     params,
     persistence: params.beta,
     logLikelihood: ll,
-    ...informationCriteria(ll, 5, n),
+    ...informationCriteria(ll, zeroMean ? 4 : 5, n),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: lnBc,
     inference: options.inference
-      ? robustStandardErrors(returns, params, lnBc, true, false, egarchLogLikelihoodGradient)
+      ? robustStandardErrors(
+          returns,
+          params,
+          lnBc,
+          { gamma: true, nu: false, mu: !zeroMean },
+          egarchLogLikelihoodGradient,
+        )
       : null,
     nuBound: null,
     modes: modes.map((m) => ({

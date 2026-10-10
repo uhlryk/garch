@@ -333,6 +333,21 @@ describe('against arch', () => {
       );
       check('LM', archLm(z, d.lags), d.arch_lm);
     });
+    it(`${name}: a zero mean — garch, gjr and egarch, as arch's mean='Zero'`, () => {
+      for (const model of ['garch', 'gjr', 'egarch'] as const) {
+        const a = s.arch.zero_mean[model];
+        const fit = fitGarch(r, { model, mean: 'zero', inference: true });
+        assert.equal(fit.mean, 'zero');
+        assert.equal(fit.params.mu, 0);
+        assert.equal(fit.parameterCount, model === 'garch' ? 3 : 4);
+        assert.ok(fit.logLikelihood >= a.loglik - 1e-3, `${model} ll ${fit.logLikelihood} vs ${a.loglik}`);
+        for (const k of ['alpha', 'beta'] as const) assert.ok(rel(fit.params[k], a[k]) < 1e-3, `${model} ${k}`);
+        assert.ok(Math.abs(fit.aic - a.aic) < 1e-2 && Math.abs(fit.bic - a.bic) < 1e-2, `${model} criteria`);
+        assert.ok(Number.isNaN(fit.inference!.standardErrors.mu), `${model}: μ was not fitted`);
+        if (a.gamma_pvalue !== null)
+          assert.ok(rel(fit.inference!.pValues.gamma, a.gamma_pvalue) < 0.02, `${model} p(γ)`);
+      }
+    });
     it(`${name}: AIC and BIC, garch and gjr`, () => {
       for (const model of ['garch', 'gjr'] as const) {
         const fit = fitGarch(r, { model });
@@ -425,6 +440,17 @@ describe('the modes of the likelihood', () => {
 
 describe('the pool', () => {
   const r = returnsOf(fixture.series.iova.closes).slice(0, 1400);
+  it('carries a zero mean through the walk-forward, the same on the pool as in-process', async () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85 }, 900, 24);
+    const request = { returns: r, model: 'gjr' as const, mean: 'zero' as const, horizon: 10, minTrain: 600 };
+    const pool = new GarchPool(2);
+    const answer = await volatilityForecastInWorkers(request, { pool });
+    await pool.close();
+    assert.deepEqual(answer, volatilityForecast(request));
+    assert.equal(answer.mean, 'zero');
+    assert.equal(answer.params.mu, 0);
+  });
+
   it('answers the walk-forward exactly as in-process, whatever its size', async () => {
     const request = { returns: r, model: 'gjr' as const, horizon: 20, rivalsWithin: 2 };
     const inProcess = volatilityForecast(request);

@@ -37,6 +37,7 @@ export {
   logGamma,
   logLikelihood,
   logLikelihoodGradient,
+  type MeanModel,
   persistence,
 } from './model.js';
 export { type QuantizationOptions, quantizedUntil } from './quality.js';

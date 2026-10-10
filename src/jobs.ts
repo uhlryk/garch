@@ -1,7 +1,7 @@
 import { egarchLogLikelihood } from './egarch.js';
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
-import { type Distribution, type GarchModel, type GarchParams, logLikelihood } from './model.js';
+import { type Distribution, type GarchModel, type GarchParams, logLikelihood, type MeanModel } from './model.js';
 import { type FitAt, segments, type Validation, walkForwardValidation } from './validation.js';
 
 export type { FitAt } from './validation.js';
@@ -15,6 +15,8 @@ export type VolatilityForecastRequest = {
   readonly returns: ArrayLike<number>;
   readonly model?: GarchModel;
   readonly dist?: Distribution;
+  /** A fitted constant (default) or zero; see `FitOptions.mean`. */
+  readonly mean?: MeanModel;
   readonly horizon: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -24,6 +26,7 @@ export type VolatilityForecastRequest = {
 
 export type VolatilityForecast = {
   readonly model: GarchModel;
+  readonly mean: MeanModel;
   readonly converged: boolean;
   readonly params: GarchParams;
   readonly persistence: number;
@@ -61,10 +64,15 @@ export type RivalMode = {
 
 /** Fit on everything and forecast `horizon` steps — the as-of half of `volatilityForecast`. */
 export function asOfFit(
-  request: Pick<VolatilityForecastRequest, 'returns' | 'model' | 'dist' | 'horizon' | 'rivalsWithin'>,
+  request: Pick<VolatilityForecastRequest, 'returns' | 'model' | 'dist' | 'mean' | 'horizon' | 'rivalsWithin'>,
 ): AsOfFit {
   const model = request.model ?? 'garch';
-  const fit = fitGarch(request.returns, { model, dist: request.dist, inference: model !== 'garch' });
+  const fit = fitGarch(request.returns, {
+    model,
+    dist: request.dist,
+    mean: request.mean,
+    inference: model !== 'garch',
+  });
   const p = fit.inference?.pValues.gamma;
   const within = request.rivalsWithin;
   return {
@@ -85,6 +93,7 @@ export function asOfFit(
               };
             }),
     model,
+    mean: fit.mean,
     converged: fit.converged,
     params: fit.params,
     persistence: fit.persistence,
@@ -116,6 +125,7 @@ export function volatilityForecast(request: VolatilityForecastRequest): Volatili
     validation: walkForwardValidation(request.returns, {
       model,
       dist: request.dist,
+      mean: request.mean,
       horizon: request.horizon,
       minTrain: request.minTrain,
       step: request.step,
@@ -130,6 +140,8 @@ export type FitsAtRequest = {
   readonly ends: readonly number[];
   readonly model?: GarchModel;
   readonly dist?: Distribution;
+  /** A fitted constant (default) or zero; see `FitOptions.mean`. */
+  readonly mean?: MeanModel;
 };
 
 /**
@@ -150,7 +162,7 @@ export function fitsAtSegment(request: FitsAtRequest): (FitAt | null)[] {
   return request.ends.map((end) => {
     if (!(Number.isInteger(end) && end >= 1 && end < all.length))
       throw new RangeError(`train end ${end} is outside the ${all.length} returns`);
-    const fit = fitGarch(all.subarray(0, end + 1), { model, dist: request.dist, warmStart: warm });
+    const fit = fitGarch(all.subarray(0, end + 1), { model, dist: request.dist, mean: request.mean, warmStart: warm });
     if (!fit.converged) return null;
     warm = fit.params;
     return {

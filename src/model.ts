@@ -29,6 +29,9 @@ export type GarchParams = {
 
 export type Distribution = 'normal' | 't';
 
+/** The mean: a fitted constant μ (`arch`'s default), or zero — μ held at 0, for returns already demeaned. */
+export type MeanModel = 'constant' | 'zero';
+
 const LOG_2PI = Math.log(2 * Math.PI);
 const LOG_PI = Math.log(Math.PI);
 

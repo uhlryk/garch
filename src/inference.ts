@@ -55,6 +55,9 @@ export function invert(matrix: readonly (readonly number[])[]): number[][] | nul
   return a.map((row) => row.slice(n));
 }
 
+/** Which parameters were fitted: γ (asymmetric models), ν (t, interior), μ (a constant mean). */
+export type FreeParameters = { readonly gamma: boolean; readonly nu: boolean; readonly mu: boolean };
+
 /**
  * Bollerslev–Wooldridge robust covariance, `arch`'s default `cov_type="robust"`:
  * H⁻¹·(Σ s_t s_tᵀ)·H⁻¹, with the per-observation scores analytic and the
@@ -62,18 +65,17 @@ export function invert(matrix: readonly (readonly number[])[]): number[][] | nul
  * boundary of the space (α or β at 0) gets a standard error without meaning;
  * it is returned as computed, as `arch` does. With `freeNu`, ν is one of the
  * parameters (t innovations, ν interior); its p-value (against ν = 0) means
- * nothing and is NaN.
+ * nothing and is NaN. A parameter not fitted (`free`) gets NaN.
  */
 export function robustStandardErrors(
   returns: ArrayLike<number>,
   params: GarchParams,
   bc: number,
-  asymmetric: boolean,
-  freeNu = false,
+  free: FreeParameters,
   likelihood: LikelihoodGradient = logLikelihoodGradient,
 ): Inference | null {
   const n = returns.length;
-  const keys = KEYS.filter((k) => (k !== 'gamma' || asymmetric) && (k !== 'nu' || freeNu));
+  const keys = KEYS.filter((k) => (k !== 'gamma' || free.gamma) && (k !== 'nu' || free.nu) && (k !== 'mu' || free.mu));
   const index = keys.map((k) => KEYS.indexOf(k));
   const m = keys.length;
   const scores = KEYS.map(() => new Float64Array(n));

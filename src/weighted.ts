@@ -1,5 +1,5 @@
 import { type AsOfFit, asOfFit } from './jobs.js';
-import type { Distribution, GarchModel } from './model.js';
+import type { Distribution, GarchModel, MeanModel } from './model.js';
 import {
   type FitAt,
   realizedVariance,
@@ -42,6 +42,8 @@ export type WeightedForecastRequest = {
   readonly step?: number;
   readonly models?: readonly ModelSpec[];
   readonly burnIn?: number;
+  /** Every model's mean: a fitted constant (default) or zero. */
+  readonly mean?: MeanModel;
 };
 
 export type WeightedModel = {
@@ -189,13 +191,14 @@ export function weightedAsOf(request: {
   returns: ArrayLike<number>;
   spec: ModelSpec;
   horizon: number;
+  mean?: MeanModel;
 }): AsOfFit | null {
-  return safeAsOf(request.returns, request.spec, request.horizon);
+  return safeAsOf(request.returns, request.spec, request.horizon, request.mean);
 }
 
-function safeAsOf(returns: ArrayLike<number>, spec: ModelSpec, horizon: number): AsOfFit | null {
+function safeAsOf(returns: ArrayLike<number>, spec: ModelSpec, horizon: number, mean?: MeanModel): AsOfFit | null {
   try {
-    return asOfFit({ returns, model: spec.model, dist: spec.dist, horizon });
+    return asOfFit({ returns, model: spec.model, dist: spec.dist, mean, horizon });
   } catch {
     return null;
   }
@@ -208,14 +211,21 @@ export function weightedForecast(request: WeightedForecastRequest): WeightedFore
   const origins = segments(validationWindows(returns.length, request).map((w) => w.origin));
   const steps = specs.map((spec) =>
     origins.flatMap((o) =>
-      walkForwardSteps({ returns, model: spec.model, dist: spec.dist, horizon: request.horizon, origins: o }),
+      walkForwardSteps({
+        returns,
+        model: spec.model,
+        dist: spec.dist,
+        mean: request.mean,
+        horizon: request.horizon,
+        origins: o,
+      }),
     ),
   );
   return assembleWeighted(
     returns,
     request,
     specs,
-    specs.map((spec) => safeAsOf(returns, spec, request.horizon)),
+    specs.map((spec) => safeAsOf(returns, spec, request.horizon, request.mean)),
     steps,
   );
 }
