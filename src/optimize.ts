@@ -17,17 +17,14 @@ function maxAbs(v: readonly number[]): number {
 }
 
 function identity(m: number): number[][] {
-  return Array.from({ length: m }, (_, i) =>
-    Array.from({ length: m }, (_, j) => (i === j ? 1 : 0)),
-  );
+  return Array.from({ length: m }, (_, i) => Array.from({ length: m }, (_, j) => (i === j ? 1 : 0)));
 }
 
 export function bfgs(f: Objective, x0: readonly number[], maxIter = 300): Minimum {
   const m = x0.length;
   let x = x0.slice();
   let { value: fx, gradient: g } = f(x);
-  if (!Number.isFinite(fx) || g.some((v) => !Number.isFinite(v)))
-    return { x, value: fx, converged: false };
+  if (!Number.isFinite(fx) || g.some((v) => !Number.isFinite(v))) return { x, value: fx, converged: false };
   let H = identity(m);
   for (let iter = 0; iter < maxIter; iter += 1) {
     if (maxAbs(g) < GRADIENT_TOL) return { x, value: fx, converged: true };
@@ -60,12 +57,7 @@ export function bfgs(f: Objective, x0: readonly number[], maxIter = 300): Minimu
       const Hy = H.map((row) => row.reduce((a, v, j) => a + v * y[j], 0));
       const yHy = y.reduce((a, v, i) => a + v * Hy[i], 0);
       H = H.map((row, i) =>
-        row.map(
-          (v, j) =>
-            v +
-            ((sy + yHy) * s[i] * s[j]) / (sy * sy) -
-            (Hy[i] * s[j] + s[i] * Hy[j]) / sy,
-        ),
+        row.map((v, j) => v + ((sy + yHy) * s[i] * s[j]) / (sy * sy) - (Hy[i] * s[j] + s[i] * Hy[j]) / sy),
       );
     }
     if (improvement < 1e-13 && maxAbs(s) < 1e-9) return { x, value: fx, converged: true };

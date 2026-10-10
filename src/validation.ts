@@ -194,7 +194,10 @@ export function scoreWalkForward(
 }
 
 /** The windows a validation with these options scores. */
-export function validationWindows(n: number, options: Pick<ValidationOptions, 'horizon' | 'minTrain' | 'step'>): Window[] {
+export function validationWindows(
+  n: number,
+  options: Pick<ValidationOptions, 'horizon' | 'minTrain' | 'step'>,
+): Window[] {
   return walkForwardOrigins(n, options.minTrain ?? 500, options.horizon, options.step ?? 10);
 }
 

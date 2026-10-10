@@ -1,23 +1,25 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
+import { GarchInputError } from '../src/fit.js';
 import {
-  realizedVariance,
-  validationWindows,
-  weighForecasts,
-  weightedForecast,
-  WEIGHTED_MODELS,
-  quantizedUntil,
-  T_NU_MIN,
   asOfFit,
   backcast,
   fitGarch,
   fitsAt,
   forecastVariance,
   qlike,
+  quantizedUntil,
+  realizedVariance,
+  T_NU_MIN,
+  validationWindows,
   volatilityForecast,
+  WEIGHTED_MODELS,
   walkForwardOrigins,
+  weighForecasts,
+  weightedForecast,
 } from '../src/index.js';
-import { logLikelihood, logLikelihoodGradient, type GarchParams } from '../src/model.js';
+import { type GarchParams, logLikelihood, logLikelihoodGradient } from '../src/model.js';
 import {
   fitsAtInWorkers,
   GarchJobInputError,
@@ -29,8 +31,6 @@ import {
 } from '../src/node.js';
 import fixture from './fixtures/arch-2026-09-25.json';
 import egarchFixture from './fixtures/arch-egarch-2026-10-01.json';
-import { egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from '../src/egarch.js';
-import { GarchInputError } from '../src/fit.js';
 
 /** mulberry32 + Box–Muller: a seeded normal stream, so the simulated paths are fixed. */
 function normals(seed: number): () => number {
@@ -102,7 +102,9 @@ describe('fitGarch', () => {
 
   it('keeps every fit a valid, stationary model', () => {
     for (const seed of [4, 5, 6]) {
-      const fit = fitGarch(simulate({ mu: 0, omega: 0.2, alpha: 0.3, gamma: 0.2, beta: 0.5 }, 700, seed), { model: 'gjr' });
+      const fit = fitGarch(simulate({ mu: 0, omega: 0.2, alpha: 0.3, gamma: 0.2, beta: 0.5 }, 700, seed), {
+        model: 'gjr',
+      });
       const p = fit.params;
       assert.ok(p.omega > 0 && p.alpha >= 0 && p.beta >= 0 && p.alpha + p.gamma >= 0 && fit.persistence < 1);
     }
@@ -150,7 +152,8 @@ describe('against arch (frozen 2026-09-25)', () => {
     it(`${name}: garch fit and σ̂`, () => {
       const fit = fitGarch(r);
       const a = s.arch.garch;
-      for (const k of ['omega', 'alpha', 'beta'] as const) assert.ok(rel(fit.params[k], a[k]) < 1e-3, `${k} ${fit.params[k]} vs ${a[k]}`);
+      for (const k of ['omega', 'alpha', 'beta'] as const)
+        assert.ok(rel(fit.params[k], a[k]) < 1e-3, `${k} ${fit.params[k]} vs ${a[k]}`);
       const v = forecastVariance(fit, 20);
       assert.ok(rel(Math.sqrt(v[0]) / 100, a.sigma_daily) < 1e-4);
       assert.ok(rel(Math.sqrt(v.reduce((x, y) => x + y, 0)) / 100, a.sigma_horizon) < 1e-4);
@@ -159,7 +162,10 @@ describe('against arch (frozen 2026-09-25)', () => {
       const fit = fitGarch(r, { model: 'gjr', inference: true });
       const a = s.arch.gjr;
       assert.ok(rel(fit.params.gamma, a.gamma!) < 2e-3, `γ ${fit.params.gamma} vs ${a.gamma}`);
-      assert.ok(rel(fit.inference!.pValues.gamma, a.gamma_pvalue!) < 0.02, `p ${fit.inference!.pValues.gamma} vs ${a.gamma_pvalue}`);
+      assert.ok(
+        rel(fit.inference!.pValues.gamma, a.gamma_pvalue!) < 0.02,
+        `p ${fit.inference!.pValues.gamma} vs ${a.gamma_pvalue}`,
+      );
     });
   }
   it('iova: the walk-forward QLIKE and its naive baseline', () => {
@@ -192,7 +198,15 @@ describe('runInWorker', () => {
   });
   it('terminates a job past its deadline', async () => {
     await assert.rejects(
-      runInWorker('volatilityForecast', { returns: simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 20000, 11), horizon: 20, step: 1 }, { timeoutMs: 50 }),
+      runInWorker(
+        'volatilityForecast',
+        {
+          returns: simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 20000, 11),
+          horizon: 20,
+          step: 1,
+        },
+        { timeoutMs: 50 },
+      ),
       GarchJobTimeoutError,
     );
   });
@@ -204,14 +218,21 @@ describe('the modes of the likelihood (#1006)', () => {
     const fit = fitGarch(r, { model: 'gjr' });
     assert.ok(fit.modes.length >= 1);
     assert.deepEqual(fit.modes[0].params, fit.params);
-    for (let i = 1; i < fit.modes.length; i += 1) assert.ok(fit.modes[i].logLikelihood <= fit.modes[i - 1].logLikelihood);
-    assert.equal(fit.modes.reduce((a, m) => a + m.starts, 0), 6);
+    for (let i = 1; i < fit.modes.length; i += 1)
+      assert.ok(fit.modes[i].logLikelihood <= fit.modes[i - 1].logLikelihood);
+    assert.equal(
+      fit.modes.reduce((a, m) => a + m.starts, 0),
+      6,
+    );
   });
   it('marks the optimum a warm start reached', () => {
     const cold = fitGarch(r);
     const warm = fitGarch(r, { warmStart: cold.params });
     assert.equal(warm.modes[0].fromWarmStart, true);
-    assert.equal(cold.modes.some((m) => m.fromWarmStart), false);
+    assert.equal(
+      cold.modes.some((m) => m.fromWarmStart),
+      false,
+    );
   });
   it('hands back as rivals only the optima within the asked distance, with their own variance path', () => {
     const sim = simulate({ mu: 0, omega: 0.2, alpha: 0.3, gamma: 0.2, beta: 0.5 }, 700, 12);
@@ -248,7 +269,10 @@ describe('the pool (#1006)', () => {
   it('keeps working after a call ran past its deadline', async () => {
     const pool = new GarchPool(2);
     const long = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 20000, 13);
-    await assert.rejects(volatilityForecastInWorkers({ returns: long, horizon: 20, step: 1 }, { pool, timeoutMs: 50 }), GarchJobTimeoutError);
+    await assert.rejects(
+      volatilityForecastInWorkers({ returns: long, horizon: 20, step: 1 }, { pool, timeoutMs: 50 }),
+      GarchJobTimeoutError,
+    );
     const ends = [300, 400];
     assert.deepEqual(await fitsAtInWorkers({ returns: r, ends }, { pool }), fitsAt({ returns: r, ends }));
     await pool.close();
@@ -395,11 +419,17 @@ describe('models weighted by their past loss (#1113)', () => {
     const returns = returnsOf(fixture.series.iova.closes).slice(-1100);
     const answer = weightedForecast({ returns, horizon: 20 });
     const origins = validationWindows(returns.length, { horizon: 20 }).map((w) => w.origin);
-    assert.deepEqual(answer.walkForward.map((o) => o.origin), origins);
+    assert.deepEqual(
+      answer.walkForward.map((o) => o.origin),
+      origins,
+    );
     for (const o of answer.walkForward)
       if (o.fits.some(Boolean)) assert.ok(Math.abs(o.weights.reduce((a, b) => a + b, 0) - 1) < 1e-12);
     // before the burn-in every model with a fit weighs the same
-    assert.deepEqual(answer.walkForward[0].weights, answer.walkForward[0].fits.map((f, _, all) => (f ? 1 / all.filter(Boolean).length : 0)));
+    assert.deepEqual(
+      answer.walkForward[0].weights,
+      answer.walkForward[0].fits.map((f, _, all) => (f ? 1 / all.filter(Boolean).length : 0)),
+    );
     const k = WEIGHTED_MODELS.findIndex((m) => m.model === 'gjr' && m.dist === 't');
     assert.deepEqual(
       answer.walkForward.map((o) => o.fits[k]),
@@ -407,7 +437,6 @@ describe('models weighted by their past loss (#1113)', () => {
     );
   });
 });
-
 
 describe('EGARCH (#1111)', () => {
   const p: GarchParams = { mu: 0.02, omega: 0.01, alpha: 0.15, gamma: -0.12, beta: 0.97 };
@@ -466,7 +495,12 @@ describe('EGARCH (#1111)', () => {
     for (const h of [1, 9, 19]) assert.ok(rel(exact[h], mean[h]) < 0.01, `step ${h + 1}: ${exact[h]} vs ${mean[h]}`);
     // the first step is the recursion on the observed shock
     const z0 = -3 / Math.sqrt(2.5);
-    assert.ok(rel(exact[0], Math.exp(p.omega + p.alpha * (Math.abs(z0) - Math.sqrt(2 / Math.PI)) + p.gamma * z0 + p.beta * Math.log(2.5))) < 1e-12);
+    assert.ok(
+      rel(
+        exact[0],
+        Math.exp(p.omega + p.alpha * (Math.abs(z0) - Math.sqrt(2 / Math.PI)) + p.gamma * z0 + p.beta * Math.log(2.5)),
+      ) < 1e-12,
+    );
   });
 
   it('refuses Student-t innovations: the expected variance two steps ahead is infinite', () => {

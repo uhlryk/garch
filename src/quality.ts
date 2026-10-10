@@ -26,7 +26,8 @@ export type QuantizationOptions = {
 export function quantizedUntil(returns: ArrayLike<number>, options: QuantizationOptions = {}): number {
   const window = options.window ?? 250;
   const share = options.maxZeroShare ?? 0.2;
-  if (!(Number.isInteger(window) && window >= 1)) throw new RangeError(`window must be a positive integer, got ${window}`);
+  if (!(Number.isInteger(window) && window >= 1))
+    throw new RangeError(`window must be a positive integer, got ${window}`);
   if (!(share >= 0 && share < 1)) throw new RangeError(`maxZeroShare must lie in [0, 1), got ${share}`);
   const n = returns.length;
   if (n < window) return 0;

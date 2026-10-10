@@ -1,6 +1,6 @@
+import { egarchLogLikelihood } from './egarch.js';
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
-import { egarchLogLikelihood } from './egarch.js';
 import { type Distribution, type GarchModel, type GarchParams, logLikelihood } from './model.js';
 import { type FitAt, segments, type Validation, walkForwardValidation } from './validation.js';
 

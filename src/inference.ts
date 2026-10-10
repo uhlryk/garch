@@ -15,6 +15,7 @@ const KEYS = ['mu', 'omega', 'alpha', 'gamma', 'beta', 'nu'] as const;
 function erfc(x: number): number {
   const z = Math.abs(x);
   const t = 1 / (1 + 0.5 * z);
+  // biome-ignore format: the Horner polynomial reads best on one line
   return (
     t *
     Math.exp(

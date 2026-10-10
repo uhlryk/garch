@@ -107,7 +107,8 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   const asymmetric = model === 'gjr';
   const studentT = options.dist === 't';
   const nuMin = options.nuMin ?? T_NU_MIN;
-  if (studentT && !(nuMin > 2 && nuMin < NU_MAX)) throw new RangeError(`nuMin must lie in (2, ${NU_MAX}), got ${nuMin}`);
+  if (studentT && !(nuMin > 2 && nuMin < NU_MAX))
+    throw new RangeError(`nuMin must lie in (2, ${NU_MAX}), got ${nuMin}`);
   const nuSpan = NU_MAX - nuMin;
   const n = returns.length;
   const { mean, variance } = moments(returns);
@@ -176,7 +177,14 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       for (const gamma of asymmetric ? START_GAMMA : [0]) {
         const beta = level - alpha - gamma / 2;
         if (beta <= 0) continue;
-        const p = { mu: mean, omega: variance * (1 - level), alpha, gamma, beta, ...(studentT ? { nu: START_NU } : {}) };
+        const p = {
+          mu: mean,
+          omega: variance * (1 - level),
+          alpha,
+          gamma,
+          beta,
+          ...(studentT ? { nu: START_NU } : {}),
+        };
         const value = logLikelihood(returns, p, bc, sig2);
         if (Number.isFinite(value) && (!best || value > best.value)) best = { value, p };
       }
@@ -190,7 +198,8 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       starts.push({ x: toX(warm), warm: true });
   }
 
-  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] = [];
+  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] =
+    [];
   for (const start of starts) {
     const run = bfgs(objective, start.x);
     if (!Number.isFinite(run.value)) continue;
@@ -317,7 +326,8 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
   const w = options.warmStart;
   if (w && w.beta > 0 && w.beta < 1 && [w.mu, w.omega, w.alpha, w.gamma].every(Number.isFinite))
     starts.push({ x: toX(w), warm: true });
-  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] = [];
+  const modes: { params: GarchParams; value: number; converged: boolean; fromWarmStart: boolean; starts: number }[] =
+    [];
   for (const start of starts) {
     const run = bfgs(objective, start.x);
     if (!Number.isFinite(run.value)) continue;

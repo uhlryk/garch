@@ -10,13 +10,8 @@ import { Worker } from 'node:worker_threads';
 import type { AsOfFit, FitAt, VolatilityForecast, VolatilityForecastRequest } from './jobs.js';
 import { baselineOf } from './jobs.js';
 import type { JobName, JobRequest, JobResult } from './registry.js';
-import {
-  assembleWeighted,
-  type WeightedForecast,
-  type WeightedForecastRequest,
-  WEIGHTED_MODELS,
-} from './weighted.js';
-import { segments, scoreWalkForward, validationWindows, type WalkForwardStep } from './validation.js';
+import { scoreWalkForward, segments, validationWindows, type WalkForwardStep } from './validation.js';
+import { assembleWeighted, WEIGHTED_MODELS, type WeightedForecast, type WeightedForecastRequest } from './weighted.js';
 import { workerFile } from './worker-file.js';
 
 /** The job was refused on its input (too little history, a bad number) — the caller's to word. */

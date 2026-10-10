@@ -8,8 +8,8 @@ import {
   type Validation,
   validationWindows,
   type WalkForwardStep,
-  walkForwardSteps,
   type Window,
+  walkForwardSteps,
 } from './validation.js';
 
 /**
@@ -81,7 +81,8 @@ const qlikeTerm = (realized: number, forecast: number) => {
   return ratio - Math.log(ratio) - 1;
 };
 
-const usable = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v) && v > 0;
+const usable = (v: number | null | undefined): v is number =>
+  v !== null && v !== undefined && Number.isFinite(v) && v > 0;
 
 /**
  * The combination itself, on forecasts already made: at each origin the
@@ -184,7 +185,11 @@ export function assembleWeighted(
 }
 
 /** One model's as-of fit, or null when it cannot be made — a worker job, so one model cannot fail the rest. */
-export function weightedAsOf(request: { returns: ArrayLike<number>; spec: ModelSpec; horizon: number }): AsOfFit | null {
+export function weightedAsOf(request: {
+  returns: ArrayLike<number>;
+  spec: ModelSpec;
+  horizon: number;
+}): AsOfFit | null {
   return safeAsOf(request.returns, request.spec, request.horizon);
 }
 
