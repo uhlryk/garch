@@ -251,6 +251,10 @@ reject with one of three errors, so a caller can word each:
 
 `npm test` compiles `src/` and `test/` with tsc and runs them with `node --test`.
 There is no test framework dependency.
+`npm run coverage` (Node ≥ 22.8) adds Node's own coverage of the compiled
+code and fails under 95 % of lines, 85 % of branches or 80 % of functions; CI
+runs it on Node 22 and 24. Code that runs only inside a worker is counted where
+the tests also run it in-process.
 
 - **The analytic gradient** matches its finite difference.
 - **Simulated paths.** Parameters are recovered on simulated GARCH and GJR paths. A real leverage term is significant and an absent one is not.
