@@ -141,7 +141,7 @@ describe('walk-forward', () => {
 });
 
 /**
- * The replacement for the `arch` kernel (#1004): where the likelihood has one
+ * A replacement for `arch`: where the likelihood has one
  * mode, this IS `arch` — the same parameters, σ̂, γ p-value and walk-forward
  * loss, frozen from `arch`'s own run on 2026-09-25.
  */
@@ -212,7 +212,7 @@ describe('runInWorker', () => {
   });
 });
 
-describe('the modes of the likelihood (#1006)', () => {
+describe('the modes of the likelihood', () => {
   const r = returnsOf(fixture.series.iova.closes);
   it('lists every optimum the starts reached, best first, the fit being the first', () => {
     const fit = fitGarch(r, { model: 'gjr' });
@@ -248,7 +248,7 @@ describe('the modes of the likelihood (#1006)', () => {
   });
 });
 
-describe('the pool (#1006)', () => {
+describe('the pool', () => {
   const r = returnsOf(fixture.series.iova.closes).slice(0, 1400);
   it('answers the walk-forward exactly as in-process, whatever its size', async () => {
     const request = { returns: r, model: 'gjr' as const, horizon: 20, rivalsWithin: 2 };
@@ -279,7 +279,7 @@ describe('the pool (#1006)', () => {
   });
 });
 
-describe('Student-t innovations (#1111)', () => {
+describe('Student-t innovations', () => {
   const tDraw = (z: () => number, nu: number) => {
     let c = 0;
     for (let i = 0; i < nu; i += 1) c += z() ** 2;
@@ -355,7 +355,7 @@ describe('Student-t innovations (#1111)', () => {
   });
 });
 
-describe('quantizedUntil (#1111)', () => {
+describe('quantizedUntil', () => {
   it('ends after the last window with too many exact zeros', () => {
     const coarse = Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 1.5 : 0)); // 2/3 zeros
     const fine = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 600, 18);
@@ -379,7 +379,7 @@ describe('quantizedUntil (#1111)', () => {
   });
 });
 
-describe('models weighted by their past loss (#1113)', () => {
+describe('models weighted by their past loss', () => {
   const r = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 1500, 20);
   const windows = validationWindows(r.length, { horizon: 20, minTrain: 200, step: 10 });
   const truth = windows.map((w) => realizedVariance(r, w.testStart, w.testEnd));
@@ -438,7 +438,7 @@ describe('models weighted by their past loss (#1113)', () => {
   });
 });
 
-describe('EGARCH (#1111)', () => {
+describe('EGARCH', () => {
   const p: GarchParams = { mu: 0.02, omega: 0.01, alpha: 0.15, gamma: -0.12, beta: 0.97 };
   /** An EGARCH path from its own recursion. */
   const path = (n: number, seed: number) => {

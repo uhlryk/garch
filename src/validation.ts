@@ -4,7 +4,7 @@ import type { Distribution, GarchModel, GarchParams } from './model.js';
 
 /**
  * Walk-forward, out of sample: is the forecast worth quoting? The same
- * harness the Python kernel graded GARCH with (#277, #984).
+ * harness `arch` fits were graded with before this package replaced them.
  */
 
 export type Window = {

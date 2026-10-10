@@ -13,10 +13,10 @@ import {
 } from './validation.js';
 
 /**
- * Several models weighted by how well each has forecast so far (#1113).
+ * Several models weighted by how well each has forecast so far.
  *
- * #1111 measured the alternative — picking the one model with the lowest past
- * loss — on 15 series: it beat the default on 8 and cost up to +47 % QLIKE
+ * The alternative, picking the one model with the lowest past loss, was
+ * measured on 15 series: it beat the default on 8 and cost up to +47 % QLIKE
  * where the ranking flipped (VNDA, SMMT). Weighting every model by 1 / its
  * mean past loss averaged −5 % with a worst case of +4 %. At each origin only
  * windows that have already ended count, so no weight has seen the future.
@@ -24,7 +24,7 @@ import {
 
 export type ModelSpec = { readonly model: GarchModel; readonly dist: Distribution };
 
-/** {garch, gjr} × {normal, t} — the four #1111 weighed. */
+/** {garch, gjr} × {normal, t} — the four measured on 15 daily series. */
 export const WEIGHTED_MODELS: readonly ModelSpec[] = [
   { model: 'garch', dist: 'normal' },
   { model: 'gjr', dist: 'normal' },

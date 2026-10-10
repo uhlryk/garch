@@ -75,8 +75,8 @@ const START_GAMMA = [0, 0.05, 0.2];
 /**
  * The default floor on ν. `arch` allows 2.05, but a t variance is
  * scale²·ν/(ν − 2): near 2 it is barely defined and its forecast explodes —
- * #1111 measured AAPL and IOVA at ν̂ ≈ 2.1–2.5, most of their early origins
- * not converging and the forecast worse than naive. At 4 the kurtosis is
+ * fitted freely, AAPL and IOVA came out at ν̂ ≈ 2.1–2.5, most of their early
+ * origins not converging and the forecast worse than naive. At 4 the kurtosis is
  * still infinite but the variance forecast is stable.
  */
 export const T_NU_MIN = 4;

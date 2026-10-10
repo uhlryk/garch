@@ -1,5 +1,5 @@
 /**
- * Whether a return series is fine-grained enough for a likelihood (#1111).
+ * Whether a return series is fine-grained enough for a likelihood.
  *
  * A price recorded on a coarse grid — cents on a stock that traded at $0.08
  * split-adjusted (AAPL until 2005), a penny stock's cents times a 1:100
