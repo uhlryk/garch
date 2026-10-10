@@ -143,9 +143,9 @@ describe('walk-forward', () => {
 /**
  * A replacement for `arch`: where the likelihood has one
  * mode, this IS `arch` — the same parameters, σ̂, γ p-value and walk-forward
- * loss, frozen from `arch`'s own run on 2026-09-25.
+ * loss, as `arch` answered them (scripts/arch-fixtures/generate.py).
  */
-describe('against arch (frozen 2026-09-25)', () => {
+describe('against arch', () => {
   for (const name of ['iova', 'spy'] as const) {
     const s = fixture.series[name];
     const r = returnsOf(s.closes);
@@ -507,7 +507,7 @@ describe('EGARCH', () => {
     assert.throws(() => fitGarch(path(500, 2), { model: 'egarch', dist: 't' }), GarchInputError);
   });
 
-  describe('against arch 8.0.0 (frozen 2026-10-01)', () => {
+  describe('against arch 8.0.0', () => {
     for (const name of ['iova', 'spy'] as const) {
       it(`${name}: arch's optimum or a higher one, its γ p-value, and its simulated forecast`, () => {
         const a = egarchFixture.series[name];

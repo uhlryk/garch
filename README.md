@@ -74,7 +74,7 @@ parameter with its analytic gradient and robust standard error.
 - **The recursion starts from ln of the backcast**, with no shock term at t = 0, as in `arch`. `GarchFit.backcast` holds that log.
 - **Parameter space.** β = σ(x2) ∈ (0, 1); ω = (1 − β)·(ln var(r) + x1); α and γ are free. `arch` lets β run in (−1, 1); a negative β is left out here. The gradient is analytic, through the recursion of d ln s.
 - **The forecast is exact, not simulated.** E[s_{T+k}] = exp(m_k)·Π_{j<k−1} E[exp(βʲ·g(z))], with m_k = ω + β·m_{k−1}. Under the normal, E[exp(a|z| + bz)] = e^{(a+b)²/2}Φ(a+b) + e^{(a−b)²/2}Φ(a−b). Under Student-t that expectation is infinite for every a > 0, which is why a t EGARCH is refused (`GarchInputError`).
-- **Against `arch` 8.0.0** (`test/fixtures/arch-egarch-2026-10-01.json`): the same optimum to ~1e-5 in α, γ, β, and an equal or slightly higher log-likelihood. γ's robust p-value agrees within 1 %. The closed-form forecast agrees with `arch`'s 200 000 simulated paths to 0.01 % and 0.24 % at 20 steps.
+- **Against `arch` 8.0.0** (`test/fixtures/arch-egarch-2026-10-01.json`): the same optimum to ~1e-5 in α, γ, β, and an equal or slightly higher log-likelihood. γ's robust p-value agrees within 1 %. The closed-form forecast agrees with `arch`'s 200 000 simulated paths (seeded) to 0.02 % and 0.08 % at 20 steps.
 - **Its walk-forward baseline is symmetric GARCH,** like GJR's: is the asymmetry worth it?
 
 ## The optimiser, and why it has six starts
@@ -190,7 +190,13 @@ There is no test framework dependency.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
-- **Against `arch` (frozen 2026-09-25).** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
+- **Against `arch`.** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes (to 2026-09-23) and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
+- **The fixtures are regenerated, not hand-written.** `scripts/arch-fixtures/generate.py` reads the closes from the fixture and rewrites `arch`'s answers in both files, with the versions in its `requirements.txt` (`arch` 8.0.0) and a seeded simulation, recording both in each file's `source`:
+
+  ```bash
+  python3 -m venv .venv && .venv/bin/pip install -r scripts/arch-fixtures/requirements.txt
+  .venv/bin/python scripts/arch-fixtures/generate.py
+  ```
 - **Worker round trip.** The same answer as in-process, an input refusal kept as an input refusal, and a timeout that terminates the worker.
 - **The modes.** Best first, the fit being the first; the warm start's optimum marked; rivals only within the asked distance.
 - **Student-t.** The gradient against finite differences, ν included. ν is recovered on a simulated t-GARCH path. A ν below the floor is held and converges, and its standard error is NaN. Robust SE come with a free ν.
