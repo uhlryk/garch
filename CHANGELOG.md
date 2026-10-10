@@ -28,6 +28,13 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 - Robust standard errors take the set of fitted parameters, so a parameter
   held fixed (μ under a zero mean, a ν on its bound) gets NaN.
 
+### Fixed
+
+- `horizon`, `minTrain`, `step` and `burnIn` must be whole numbers; a fraction
+  is refused with a `RangeError` instead of giving odd windows or an extra step.
+- A pool timeout names the jobs that had not finished, with how many of each,
+  instead of the call's first job.
+
 ## [0.1.0] - 2026-10-10
 
 The first public release.

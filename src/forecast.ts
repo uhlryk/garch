@@ -1,6 +1,6 @@
 import { egarchForecast } from './egarch.js';
 import type { GarchFit } from './fit.js';
-import { persistence } from './model.js';
+import { checkCount, persistence } from './model.js';
 
 /**
  * Per-step variance forecasts s_{T+1} … s_{T+h}, analytic: the first step
@@ -9,7 +9,7 @@ import { persistence } from './model.js';
  * `egarchForecast`.
  */
 export function forecastVariance(fit: GarchFit, horizon: number): number[] {
-  if (!(horizon >= 1)) throw new RangeError(`horizon must be ≥ 1, got ${horizon}`);
+  checkCount('horizon', horizon);
   const p = fit.params;
   const e = fit.lastResidual;
   const last = fit.conditionalVariance[fit.conditionalVariance.length - 1];

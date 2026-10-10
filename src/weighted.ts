@@ -1,5 +1,5 @@
 import { type AsOfFit, asOfFit } from './jobs.js';
-import type { Distribution, GarchModel, MeanModel } from './model.js';
+import { checkCount, type Distribution, type GarchModel, type MeanModel } from './model.js';
 import {
   type FitAt,
   qlikeTerm,
@@ -94,6 +94,7 @@ export function weighForecasts(
   perModel: readonly (readonly (number | null)[])[],
   burnIn = WEIGHT_BURN_IN,
 ): { forecasts: (number | null)[]; originWeights: number[][]; asOfWeights: number[] } {
+  checkCount('burnIn', burnIn, 0);
   const m = perModel.length;
   const realized = windows.map((w) => realizedVariance(returns, w.testStart, w.testEnd));
   const lossSum = new Array<number>(m).fill(0);

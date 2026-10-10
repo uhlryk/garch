@@ -1,6 +1,6 @@
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
-import type { Distribution, GarchModel, GarchParams, MeanModel } from './model.js';
+import { checkCount, type Distribution, type GarchModel, type GarchParams, type MeanModel } from './model.js';
 
 /**
  * Walk-forward, out of sample: is the forecast worth quoting? The same
@@ -21,9 +21,9 @@ export type Window = {
  * the last origin is n − 1 − horizon.
  */
 export function walkForwardOrigins(n: number, minTrain: number, horizon: number, step = 1): Window[] {
-  if (!(minTrain >= 1)) throw new RangeError(`minTrain must be ≥ 1, got ${minTrain}`);
-  if (!(horizon >= 1)) throw new RangeError(`horizon must be ≥ 1, got ${horizon}`);
-  if (!(step >= 1)) throw new RangeError(`step must be ≥ 1, got ${step}`);
+  checkCount('minTrain', minTrain);
+  checkCount('horizon', horizon);
+  checkCount('step', step);
   const out: Window[] = [];
   for (let origin = minTrain - 1; origin <= n - 1 - horizon; origin += step)
     out.push({ origin, testStart: origin + 1, testEnd: origin + horizon });

@@ -49,6 +49,21 @@ type Task = {
   readonly resolve: (value: unknown) => void;
 };
 
+/** The jobs still running or queued, by name: `walkForwardForecasts (3 of 40 tasks), asOfFit`. */
+function unfinished(tasks: readonly PoolTask[], done: readonly boolean[]): string {
+  const counts = new Map<JobName, { left: number; all: number }>();
+  tasks.forEach((t, i) => {
+    const c = counts.get(t.job) ?? { left: 0, all: 0 };
+    c.all += 1;
+    if (!done[i]) c.left += 1;
+    counts.set(t.job, c);
+  });
+  return [...counts]
+    .filter(([, c]) => c.left)
+    .map(([job, c]) => (c.all === 1 ? job : `${job} (${c.left} of ${c.all} tasks)`))
+    .join(', ');
+}
+
 /** The tasks of one call: they share a deadline and fail together. */
 class Batch {
   failed: Error | null = null;
@@ -80,6 +95,7 @@ export class WorkerPool {
   run<T>(tasks: readonly PoolTask[], timeoutMs?: number): Promise<T[]> {
     return new Promise<T[]>((resolve, reject) => {
       const results = new Array<unknown>(tasks.length);
+      const done = new Array<boolean>(tasks.length).fill(false);
       let left = tasks.length;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const batch = new Batch((error) => {
@@ -92,7 +108,8 @@ export class WorkerPool {
       if (!left) return resolve([]);
       if (timeoutMs)
         timer = setTimeout(
-          () => batch.reject(new GarchJobTimeoutError(`${tasks[0].job} did not finish within ${timeoutMs} ms`)),
+          () =>
+            batch.reject(new GarchJobTimeoutError(`${unfinished(tasks, done)} did not finish within ${timeoutMs} ms`)),
           timeoutMs,
         );
       const order = tasks.map((_, i) => i).sort((a, b) => (tasks[b].weight ?? 0) - (tasks[a].weight ?? 0));
@@ -104,6 +121,7 @@ export class WorkerPool {
           batch,
           resolve: (value) => {
             results[i] = value;
+            done[i] = true;
             left -= 1;
             if (!left && !batch.failed) {
               clearTimeout(timer);

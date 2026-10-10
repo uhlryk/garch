@@ -280,6 +280,15 @@ describe('simulate', () => {
 });
 
 describe('walk-forward', () => {
+  it('refuses a count that is not a whole number', () => {
+    const fit = fitGarch(simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 300, 28));
+    assert.throws(() => forecastVariance(fit, 2.5), /horizon must be an integer/);
+    assert.throws(() => walkForwardOrigins(1000, 500.5, 5), /minTrain/);
+    assert.throws(() => walkForwardOrigins(1000, 500, 5, 0.5), /step/);
+    assert.throws(() => validationWindows(1000, { horizon: 1.5 }), /horizon/);
+    assert.throws(() => weighForecasts([1, 2, 3], [], [], 2.5), /burnIn/);
+  });
+
   it('never lets a test window overlap its train window, nor run past the end', () => {
     const w = walkForwardOrigins(100, 50, 5, 3);
     assert.equal(w[0].origin, 49);
@@ -492,7 +501,9 @@ describe('the web pool', () => {
       const long = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 3000, 26);
       await assert.rejects(
         volatilityForecastInWebWorkers({ returns: long, model: 'gjr', horizon: 5 }, { pool, timeoutMs: 50 }),
-        GarchJobTimeoutError,
+        (error: Error) =>
+          error instanceof GarchJobTimeoutError &&
+          /walkForwardForecasts \(\d+ of \d+ tasks\) did not finish within 50 ms$/.test(error.message),
       );
       const r = simulate({ mu: 0, omega: 0.05, alpha: 0.1, gamma: 0, beta: 0.85 }, 700, 27);
       const request = { returns: r, horizon: 5, minTrain: 650 };

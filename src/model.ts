@@ -29,6 +29,12 @@ export type GarchParams = {
 
 export type Distribution = 'normal' | 't';
 
+/** Refuses anything but an integer ≥ `min` — a count of steps, rows or windows. */
+export function checkCount(name: string, value: number, min = 1): void {
+  if (!(Number.isInteger(value) && value >= min))
+    throw new RangeError(`${name} must be an integer ≥ ${min}, got ${value}`);
+}
+
 /** The mean: a fitted constant μ (`arch`'s default), or zero — μ held at 0, for returns already demeaned. */
 export type MeanModel = 'constant' | 'zero';
 
