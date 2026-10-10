@@ -14,6 +14,9 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   Student-t) and egarch, from a fit's last state or the unconditional variance.
 - Residual diagnostics: `standardizedResiduals`, `ljungBox`, `archLm` and
   `chiSquareSurvival`, matching statsmodels and scipy.
+- Value at risk: `tailRisk` (one step, normal or t), `simulatedTailRisk`
+  (multi-step, from paths), `varBacktest` and `coverageTest` (Kupiec,
+  Christoffersen); `normalQuantile`, `studentCdf`, `studentQuantile`.
 
 ## [0.1.0] - 2026-10-10
 

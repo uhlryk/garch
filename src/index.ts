@@ -41,6 +41,19 @@ export {
 } from './model.js';
 export { type QuantizationOptions, quantizedUntil } from './quality.js';
 export type { JobName, JobRequest, JobResult } from './registry.js';
+export {
+  type CoverageTest,
+  coverageTest,
+  normalQuantile,
+  simulatedTailRisk,
+  studentCdf,
+  studentQuantile,
+  type TailRisk,
+  tailRisk,
+  type VarBacktest,
+  type VarBacktestOptions,
+  varBacktest,
+} from './risk.js';
 export { type Simulation, type SimulationRequest, simulate } from './simulate.js';
 export {
   type Baseline,

@@ -97,6 +97,17 @@ z) say whether the model left anything behind; each returns the statistic, its
 `acorr_ljungbox` and `het_arch` and agree with them on the fixture series to
 1e-3; `chiSquareSurvival` agrees with scipy to 1e-12.
 
+### Value at risk
+
+VaR and ES are positive losses in the returns' units at a tail probability
+`level` (0.01 for 99 %). `tailRisk` gives the one-step answer in closed form
+from μ, s_{T+1} and the innovations (normal, or standardised t with ν); its
+quantiles and tail means agree with scipy. Over several steps the cumulative
+return under GARCH is not normal, so `simulatedTailRisk` reads VaR and ES off
+`simulate`'s paths. `varBacktest` walks a one-step VaR forward and
+`coverageTest` grades the violations: Kupiec's unconditional coverage,
+Christoffersen's independence, and both together.
+
 ## The optimiser, and why it has six starts
 
 BFGS with an analytic gradient runs in an unconstrained space where every point
@@ -184,7 +195,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## API
 
 ```ts
-import { archLm, egarchForecast, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, standardizedResiduals, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { archLm, egarchForecast, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node';
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -201,6 +212,10 @@ simulate({ model: 'gjr', params: fit.params, lastVariance: fit.conditionalVarian
 const z = standardizedResiduals(fit, returns);
 ljungBox(z.map((v) => v * v), 10);   // → { statistic, df, pValue }: ARCH left in the residuals?
 archLm(z, 10);
+
+tailRisk({ mean: fit.params.mu, variance: forecastVariance(fit, 1)[0], nu: fit.params.nu, level: 0.01 });
+simulatedTailRisk(simulate({ ... , steps: 10, paths: 100_000, seed: 1 }), 0.01);   // 10-day VaR, ES
+varBacktest(returns, { model: 'gjr', dist: 't', level: 0.01, step: 1 });          // → violations, rate, Kupiec, Christoffersen
 
 // Node only: the walk-forward's segments across a pool of workers — the in-process answer, faster
 await volatilityForecastInWorkers({ returns, model: 'gjr', horizon: 20, rivalsWithin: 1.92 }, { timeoutMs: 120_000 });
@@ -228,6 +243,7 @@ There is no test framework dependency.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
 - **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal and t) and EGARCH, and their innovations have unit variance.
+- **Value at risk.** Normal and t quantiles, VaR and ES against scipy; the one-step VaR read off simulated paths; Kupiec and Christoffersen statistics against a hand computation; a walked-forward VaR covers at its level when the model is the truth.
 - **Residual diagnostics.** Ljung–Box and ARCH-LM against statsmodels on the fixture series; the χ² tail against scipy; ARCH found in a GARCH path and none left in its standardised residuals.
 - **Against `arch`.** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes (to 2026-09-23) and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
 - **The fixtures are regenerated, not hand-written.** `scripts/arch-fixtures/generate.py` reads the closes from the fixture and rewrites `arch`'s answers in both files, with the versions in its `requirements.txt` (`arch` 8.0.0) and a seeded simulation, recording both in each file's `source`:
