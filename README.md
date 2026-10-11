@@ -295,7 +295,7 @@ written out literally, so Vite and webpack bundle it without configuration;
 both were checked in Chrome. A bundler that needs the worker its own way passes
 `new GarchWebPool(size, () => new Worker(...))`. Node's pool and this one share
 one implementation of the queue, deadline and cancellation (`WorkerPool`).
-[`examples/browser/`](examples/browser) is a Vite page running a walk-forward
+[`examples/browser/`](https://github.com/uhlryk/garch/tree/main/examples/browser) is a Vite page running a walk-forward
 on the web pool (`npm install && npm run dev` there).
 
 ## Several models, weighted by their past loss
@@ -337,7 +337,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 
 ## Examples
 
-Complete programs in [`examples/`](examples), each importing the package by
+Complete programs in [`examples/`](https://github.com/uhlryk/garch/tree/main/examples), each importing the package by
 name; CI runs the Node ones against the packed tarball. In a checkout,
 `npm run build` first (the name resolves to `dist/`).
 
@@ -346,7 +346,7 @@ name; CI runs the Node ones against the packed tarball. In a checkout,
 | [`forecast.mjs`](examples/forecast.mjs) | gjr-t on SPY on the worker pool: parameters, σ̂ tomorrow and over 20 days, the walk-forward verdict and its Diebold–Mariano p-value. |
 | [`var-backtest.mjs`](examples/var-backtest.mjs) | A one-step 99 % VaR walked forward day by day, parametric and FHS, with Kupiec and Christoffersen. |
 | [`simulate-fan.mjs`](examples/simulate-fan.mjs) | Paths from the fit: percentiles of the 10-day return, and the 10-day VaR and ES. |
-| [`browser/`](examples/browser) | A Vite page running the walk-forward on Web Workers. |
+| [`browser/`](https://github.com/uhlryk/garch/tree/main/examples/browser) | A Vite page running the walk-forward on Web Workers. |
 
 `examples/spy.json` holds the last 2 501 SPY closes of the test fixture.
 
