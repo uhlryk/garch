@@ -22,6 +22,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - run: npm run docs:check
       # Node 22.8+ reads coverage and holds it to the floors in package.json; Node 20 only tests
       - if: matrix.node == 20
         run: npm test

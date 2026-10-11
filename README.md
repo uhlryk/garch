@@ -1,9 +1,12 @@
 # @krzysztofsztompka/garch
 
-GARCH(1,1), GJR-GARCH(1,1) and EGARCH(1,1,1) by maximum likelihood, with
-walk-forward validation. Pure TypeScript, **no runtime dependencies**, CommonJS
-and ES modules. Fits match Python's [`arch`](https://github.com/bashtage/arch)
-where the likelihood has one optimum, and find a higher one where it has several.
+GARCH(1,1), GJR-GARCH(1,1) and EGARCH(1,1,1) by maximum likelihood — normal,
+Student-t or skewed-t innovations, a constant or zero mean — with variance
+forecasts, walk-forward validation, simulation, value at risk with backtests,
+and residual diagnostics. Pure TypeScript, **no runtime dependencies**,
+CommonJS and ES modules, worker pools for Node and the browser. Fits match
+Python's [`arch`](https://github.com/bashtage/arch) where the likelihood has
+one optimum, and find a higher one where it has several.
 
 ```bash
 npm install @krzysztofsztompka/garch
@@ -55,9 +58,10 @@ What it does not do, deliberately:
 
 - **A zero mean** (`mean: 'zero'`, `arch`'s `mean='Zero'`) holds μ at 0 for returns already demeaned; every model takes it, and so do the walk-forward, the pool and the weighted forecast. It matches `arch` on the fixture series.
 - **Backcast as in `arch`.** The recursion starts from an exponentially weighted (0.94) mean of the first 75 squared residuals.
-- **Analytic forecasts.** s_{T+k} = ω + (α + γ/2 + β)·s_{T+k−1}.
-- **AIC and BIC** as `arch` computes them, −2·ln L + 2k and −2·ln L + k·ln n, with k the free parameters (`parameterCount`): μ, ω, α, β, plus γ for gjr and egarch, plus ν for t unless it is held on a bound.
-- **Robust standard errors.** Bollerslev–Wooldridge, `arch`'s `cov_type="robust"`: analytic scores and a Hessian taken by differencing the analytic gradient.
+- **Analytic forecasts.** s_{T+k} = ω + (α + κγ + β)·s_{T+k−1}, with κ = E[z²·1{z < 0}] the down moves' share of a unit shock (`downShare`): ½ for normal and t innovations, computed exactly for a skewed t (below). `persistence` is α + κγ + β.
+- **AIC and BIC** as `arch` computes them, −2·ln L + 2k and −2·ln L + k·ln n, with k the free parameters (`parameterCount`): ω, α, β, plus μ unless the mean is zero, γ for gjr and egarch, ν for t and skewed t unless it is held on a bound, and λ for skewed t.
+- **Robust standard errors.** Bollerslev–Wooldridge, `arch`'s `cov_type="robust"`: analytic scores and a Hessian taken by differencing the analytic gradient. A parameter that was not fitted (μ under a zero mean, a ν held on its bound) gets NaN.
+- **Refusals.** Input that cannot be fitted — fewer than 10 returns, a non-finite one, no variance — throws `GarchInputError`; a count that is not a whole number (`horizon`, `minTrain`, `step`, `burnIn`) throws `RangeError`.
 
 ### Student-t innovations (`dist: 't'`)
 
@@ -93,7 +97,7 @@ same floor and bound handling as under t.
 - **The asymmetry is γ itself, and its sign is the other way round from GJR.** γ < 0 means a down move raises tomorrow's variance more than an up move of the same size. `persistence` is β.
 - **The recursion starts from ln of the backcast**, with no shock term at t = 0, as in `arch`. `GarchFit.backcast` holds that log.
 - **Parameter space.** β = σ(x2) ∈ (0, 1); ω = (1 − β)·(ln var(r) + x1); α and γ are free. `arch` lets β run in (−1, 1); a negative β is left out here. The gradient is analytic, through the recursion of d ln s.
-- **The forecast is exact, not simulated.** E[s_{T+k}] = exp(m_k)·Π_{j<k−1} E[exp(βʲ·g(z))], with m_k = ω + β·m_{k−1}. Under the normal, E[exp(a|z| + bz)] = e^{(a+b)²/2}Φ(a+b) + e^{(a−b)²/2}Φ(a−b). Under Student-t that expectation is infinite for every a > 0, which is why a t EGARCH is refused (`GarchInputError`).
+- **The forecast is exact, not simulated.** E[s_{T+k}] = exp(m_k)·Π_{j<k−1} E[exp(βʲ·g(z))], with m_k = ω + β·m_{k−1}. Under the normal, E[exp(a|z| + bz)] = e^{(a+b)²/2}Φ(a+b) + e^{(a−b)²/2}Φ(a−b). Under Student-t (skewed or not) that expectation is infinite for every a > 0, which is why a t or skewed-t EGARCH is refused (`GarchInputError`).
 - **Against `arch` 8.0.0** (`test/fixtures/arch-egarch-2026-10-01.json`): the same optimum to ~1e-5 in α, γ, β, and an equal or slightly higher log-likelihood. γ's robust p-value agrees within 1 %. The closed-form forecast agrees with `arch`'s 200 000 simulated paths (seeded) to 0.02 % and 0.08 % at 20 steps.
 - **Its walk-forward baseline is symmetric GARCH,** like GJR's: is the asymmetry worth it?
 
@@ -102,8 +106,9 @@ same floor and bound handling as under t.
 `simulate` runs the model's own recursion forward: `paths` paths of `steps`
 returns, from where a fit stands (its last variance and residual, so step 1's
 variance is the one-step forecast) or from the unconditional variance. The
-innovations are normal, or Student-t scaled to unit variance when the
-parameters carry ν; an EGARCH with t is refused, as in fitting. One seeded
+innovations are normal, Student-t scaled to unit variance when the parameters
+carry ν, or Hansen's skewed t when they also carry λ; an EGARCH with t is
+refused, as in fitting. One seeded
 stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
 platform. The paths' mean variance converges to `forecastVariance`.
 
@@ -120,8 +125,8 @@ z) say whether the model left anything behind; each returns the statistic, its
 
 VaR and ES are positive losses in the returns' units at a tail probability
 `level` (0.01 for 99 %). `tailRisk` gives the one-step answer in closed form
-from μ, s_{T+1} and the innovations (normal, or standardised t with ν); its
-quantiles and tail means agree with scipy. Over several steps the cumulative
+from μ, s_{T+1} and the innovations (normal, standardised t with ν, or skewed
+t with ν and λ); its quantiles and tail means agree with scipy and `arch`. Over several steps the cumulative
 return under GARCH is not normal, so `simulatedTailRisk` reads VaR and ES off
 `simulate`'s paths. `varBacktest` walks a one-step VaR forward and
 `coverageTest` grades the violations: Kupiec's unconditional coverage,
@@ -191,7 +196,9 @@ one implementation of the queue, deadline and cancellation (`WorkerPool`).
 ## Several models, weighted by their past loss
 
 `weightedForecast` / `weightedForecastInWorkers` fit {garch, gjr} × {normal, t}
-(`WEIGHTED_MODELS`). Each model is walked forward, and the models are combined
+(`WEIGHTED_MODELS`) by default; `models` takes any other set of
+`{ model, dist }` (egarch and skewed t included), and `mean: 'zero'` applies to
+all of them. Each model is walked forward, and the models are combined
 at every origin by weights ∝ 1 / the model's mean QLIKE over the windows that
 had **ended** by that origin. The weights are equal until each model has 20
 such windows (`WEIGHT_BURN_IN`). The as-of forecast and variance path are
@@ -223,11 +230,11 @@ and the coverage of a forecast range — against what happened:
 
 npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹⁰).
 
-## API
+## Usage
 
 ```ts
 import { archLm, egarchForecast, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
-import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node';
+import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
 fit.modes;                     // every optimum reached, best first
@@ -250,7 +257,7 @@ tailRisk({ mean: fit.params.mu, variance: forecastVariance(fit, 1)[0], nu: fit.p
 simulatedTailRisk(simulate({ ... , steps: 10, paths: 100_000, seed: 1 }), 0.01);   // 10-day VaR, ES
 varBacktest(returns, { model: 'gjr', dist: 't', level: 0.01, step: 1 });          // → violations, rate, Kupiec, Christoffersen
 
-// Node only: the walk-forward's segments across a pool of workers — the in-process answer, faster
+// on a pool (Node: /node, browser: /web): the walk-forward's segments across workers — the in-process answer, faster
 await volatilityForecastInWorkers({ returns, model: 'gjr', horizon: 20, rivalsWithin: 1.92 }, { timeoutMs: 120_000 });
 await fitsAtInWorkers({ returns, ends: [999, 1499] });
 await weightedForecastInWorkers({ returns, horizon: 20 });
@@ -264,6 +271,99 @@ reject with one of three errors, so a caller can word each:
 - `GarchJobInputError`: the input cannot be fitted.
 - `GarchJobTimeoutError`: the call ran past its deadline, and its workers are terminated.
 - `GarchJobFailedError`: any other failure.
+
+## API reference
+
+Every value each entry point exports, one line each. The types (`GarchFit`,
+`FitOptions`, `VolatilityForecast`, …) come with the declarations, and each
+field is commented there. `npm run docs:check` fails when an export is missing
+from this section.
+
+### `@krzysztofsztompka/garch`
+
+**Fitting and forecasting**
+
+| export | what it does |
+|---|---|
+| `fitGarch(returns, options?)` | Maximum likelihood fit: `model` (`'garch'` \| `'gjr'` \| `'egarch'`), `dist` (`'normal'` \| `'t'` \| `'skewt'`), `mean` (`'constant'` \| `'zero'`), `nuMin`, `warmStart`, `inference`. Returns `GarchFit`: params, persistence, log-likelihood, `aic`, `bic`, variance path, `modes`, `nuBound`, `inference`. |
+| `forecastVariance(fit, horizon)` | s_{T+1} … s_{T+h}, analytic (EGARCH's exact). |
+| `egarchForecast(params, lastVariance, lastResidual, horizon)` | EGARCH's closed-form expected variance path, from a state. |
+| `persistence(params)` | α + κγ + β for garch/gjr. |
+| `downShare(params)` | κ = E[z²·1{z < 0}] of the params' innovations: ½, or the skewed t's. |
+| `GarchInputError` | Thrown on input that cannot be fitted. |
+| `T_NU_MIN` | The default floor on ν (4). |
+
+**Whole questions**
+
+| export | what it does |
+|---|---|
+| `volatilityForecast(request)` | Fit on everything, forecast `horizon` steps, walk the model forward against its baseline (naive for garch, symmetric garch for gjr and egarch). |
+| `asOfFit(request)` | The as-of half of it: the fit, its forecast, γ's p-value, and `rivalsWithin` rival optima. |
+| `fitsAt(request)` | One fit per train end — the state a simulation from each window needs. |
+| `weightedForecast(request)` | Several models weighted by 1 / their past QLIKE (below). |
+| `WEIGHTED_MODELS`, `WEIGHT_BURN_IN` | The default model set and burn-in of the weighting. |
+| `weighForecasts(returns, windows, perModel, burnIn?)` | The weighting itself, on forecasts already made. |
+
+**Walk-forward validation**
+
+| export | what it does |
+|---|---|
+| `walkForwardValidation(returns, options)` | QLIKE of the model's walked-forward forecasts against a `'naive'` or `'garch'` baseline. |
+| `walkForwardOrigins(n, minTrain, horizon, step?)` | The expanding windows; no test index ever precedes a train index. |
+| `validationWindows(n, options)` | The windows a validation scores (minTrain 500, step 10 by default). |
+| `walkForwardForecasts(request)`, `walkForwardSteps(request)` | One segment's forecasts, and with each origin's fit kept. |
+| `scoreWalkForward(returns, windows, horizon, forecasts, baseline)` | QLIKE of given forecasts and their baseline. |
+| `segments(items, size?)`, `SEGMENT_ORIGINS` | The cut into 32-origin segments that keeps the pool's answer identical. |
+| `qlike(realized, forecast)` | Patton's QLIKE loss over variances. |
+| `realizedVariance(returns, from?, to?)` | The mean squared return over a window. |
+
+**Simulation, risk and diagnostics**
+
+| export | what it does |
+|---|---|
+| `simulate(request)` | Seeded paths of returns and variances from a fit's state or the unconditional variance. |
+| `tailRisk({ mean, variance, nu?, lambda?, level })` | One-step VaR and ES, closed form. |
+| `simulatedTailRisk(simulation, level, steps?)` | VaR and ES of the cumulative return over simulated paths. |
+| `varBacktest(returns, options)` | A one-step VaR walked forward, its violations graded. |
+| `coverageTest(violations, level)` | Kupiec, Christoffersen and conditional coverage tests. |
+| `standardizedResiduals(fit, returns)` | z_t = (r_t − μ)/√s_t. |
+| `ljungBox(series, lags, modelDf?)`, `archLm(series, lags)` | Serial correlation and ARCH left in the residuals. |
+| `quantizedUntil(returns, options?)` | Where coarse-grid history ends. |
+
+**Distributions and special functions**
+
+| export | what it does |
+|---|---|
+| `normalCdf(x)`, `normalQuantile(p)`, `twoSidedPValue(z)` | The normal CDF, its inverse, and a two-sided p-value. |
+| `studentCdf(t, nu)`, `studentQuantile(p, nu)` | Student's t (not standardised). |
+| `skewQuantile(p, nu, lambda)`, `skewPartialMoments(x, nu, lambda)`, `skewDownShare(nu, lambda)` | Hansen's skewed t: quantile, E[zᵏ·1{z < x}] for k = 0, 1, 2, and κ. |
+| `chiSquareSurvival(x, df)` | P(χ²_df > x). |
+| `logGamma(x)`, `digamma(x)` | ln Γ and ψ. |
+
+**Likelihoods** — for checking a fit or building on one
+
+| export | what it does |
+|---|---|
+| `logLikelihood(returns, params, backcast, variance, contributions?)` | The garch/gjr log-likelihood, filling the variance path. |
+| `logLikelihoodGradient(returns, params, backcast, scores?)` | It and its analytic gradient (and per-observation scores). |
+| `egarchLogLikelihood(…)`, `egarchLogLikelihoodGradient(…)` | The same for EGARCH, from the log of the backcast. |
+| `backcast(returns, mean?)` | `arch`'s pre-sample variance. |
+| `EGARCH_ABS_MEAN` | E\|z\| = √(2/π). |
+
+### `@krzysztofsztompka/garch/node` and `@krzysztofsztompka/garch/web`
+
+Both export the same names; `/node` runs worker threads, `/web` Web Workers.
+
+| export | what it does |
+|---|---|
+| `volatilityForecastInWorkers(request, options?)` | `volatilityForecast` across the pool. |
+| `fitsAtInWorkers(request, options?)` | `fitsAt` across the pool. |
+| `weightedForecastInWorkers(request, options?)` | `weightedForecast` across the pool. |
+| `runInWorker(job, request, options?)` | Any one job on one worker. |
+| `GarchPool` (`/node`), `GarchWebPool` (`/web`) | A pool of `size` workers; `close()` terminates them. |
+| `defaultPool()` | The shared pool the calls use when `options.pool` is absent. |
+| `WorkerPool` | The transport-independent pool both extend. |
+| `GarchJobInputError`, `GarchJobTimeoutError`, `GarchJobFailedError` | How a pool call rejects. |
 
 ## Tests
 
@@ -279,7 +379,9 @@ the tests also run it in-process.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
-- **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal and t) and EGARCH, and their innovations have unit variance.
+- **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal, t and skewed t) and EGARCH, and their innovations have unit variance.
+- **A zero mean and the criteria.** garch, gjr and egarch with `mean: 'zero'` against `arch`'s `mean='Zero'`; AIC and BIC against `arch`'s; the zero mean carried through the pool.
+- **Refusals.** Fractional counts are refused; a pool timeout names the jobs it cut short.
 - **Value at risk.** Normal and t quantiles, VaR and ES against scipy; the one-step VaR read off simulated paths; Kupiec and Christoffersen statistics against a hand computation; a walked-forward VaR covers at its level when the model is the truth.
 - **Residual diagnostics.** Ljung–Box and ARCH-LM against statsmodels on the fixture series; the χ² tail against scipy; ARCH found in a GARCH path and none left in its standardised residuals.
 - **Against `arch`.** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes (to 2026-09-23) and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
@@ -304,6 +406,14 @@ the tests also run it in-process.
 ```bash
 npm install && npm run build     # → dist/cjs and dist/esm, each with .d.ts
 ```
+
+## Contributing
+
+A change to the public API or its behaviour lands with its documentation: the
+feature's section in this README, a Usage line, an **API reference** row for
+each new export, a Tests bullet, and a CHANGELOG `Unreleased` entry
+(`CLAUDE.md` and the issue template list it). CI runs `npm run docs:check`,
+which fails when an export has no API reference row.
 
 ## Releasing
 
