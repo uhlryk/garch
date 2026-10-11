@@ -262,7 +262,7 @@ export async function fitsAtOnPool(
   const tasks = segments(request.ends).map((ends) => ({
     job: 'fitsAtSegment' as const,
     request: { returns, ends, model: request.model, dist: request.dist, mean: request.mean },
-    weight: cost(ends) * (request.dist === 't' ? 2 : 1),
+    weight: cost(ends) * (request.dist && request.dist !== 'normal' ? 2 : 1),
   }));
   const out = await pool.run<(FitAt | null)[]>(tasks, timeoutMs);
   return out.flat();
@@ -297,7 +297,7 @@ export async function weightedForecastOnPool(
           horizon: request.horizon,
           origins: o,
         },
-        weight: cost(o) * (spec.dist === 't' ? 2 : 1),
+        weight: cost(o) * (spec.dist !== 'normal' ? 2 : 1),
       })),
     ),
   ];

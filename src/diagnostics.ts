@@ -1,6 +1,6 @@
 import type { GarchFit } from './fit.js';
 import { invert } from './inference.js';
-import { logGamma } from './model.js';
+import { logGamma } from './special.js';
 
 /**
  * Is anything left for the model to explain? A fitted model's standardised

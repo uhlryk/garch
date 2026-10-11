@@ -22,6 +22,7 @@ from pathlib import Path
 import arch
 import numpy as np
 from arch import arch_model
+from arch.univariate import SkewStudent
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'test' / 'fixtures'
@@ -42,8 +43,8 @@ def returns_of(closes: list[float]) -> np.ndarray:
     return np.log(c[1:] / c[:-1]) * 100
 
 
-def fit(r: np.ndarray, vol: str, o: int, mean: str = 'Constant'):
-    return arch_model(r, mean=mean, vol=vol, p=1, o=o, q=1, dist='normal').fit(disp='off')
+def fit(r: np.ndarray, vol: str, o: int, mean: str = 'Constant', dist: str = 'normal'):
+    return arch_model(r, mean=mean, vol=vol, p=1, o=o, q=1, dist=dist).fit(disp='off')
 
 
 def criteria(res) -> dict:
@@ -97,6 +98,47 @@ def zero_mean_answers(r: np.ndarray) -> dict:
             'gamma_pvalue': float(res.pvalues['gamma[1]']) if o else None,
             **criteria(res),
         }
+    return out
+
+
+def skewt_answers(r: np.ndarray) -> dict:
+    """garch and gjr with Hansen's skewed t: parameters (η as nu, λ as lambda), likelihood, criteria, p-values."""
+    out = {}
+    for model, o in (('garch', 0), ('gjr', 1)):
+        res = fit(r, 'GARCH', o, dist='skewt')
+        p = res.params
+        out[model] = {
+            'mu': float(p['mu']),
+            'omega': float(p['omega']),
+            'alpha': float(p['alpha[1]']),
+            'gamma': float(p['gamma[1]']) if o else None,
+            'beta': float(p['beta[1]']),
+            'nu': float(p['eta']),
+            'lambda': float(p['lambda']),
+            'gamma_pvalue': float(res.pvalues['gamma[1]']) if o else None,
+            'lambda_pvalue': float(res.pvalues['lambda']),
+            'converged': res.convergence_flag == 0,
+            **criteria(res),
+        }
+    return out
+
+
+def skewt_distribution() -> list:
+    """arch's SkewStudent itself: quantiles and partial moments E[zᵏ·1{z < x}] at a few (η, λ)."""
+    d = SkewStudent()
+    out = []
+    for nu, lam in ((5.0, 0.0), (5.0, -0.3), (8.0, 0.4), (4.5, -0.7)):
+        params = np.array([nu, lam])
+        out.append({
+            'nu': nu,
+            'lambda': lam,
+            'quantiles': {str(q): float(d.ppf(q, params)) for q in (0.001, 0.01, 0.05, 0.5, 0.9)},
+            'partial_moments': [
+                {'x': x, 'k': k, 'value': float(d.partial_moment(k, x, params))}
+                for x in (-2.0, 0.0, 1.0)
+                for k in (0, 1, 2)
+            ],
+        })
     return out
 
 
@@ -173,7 +215,10 @@ def main() -> None:
             'gjr': garch_answers(r, 1),
             'zero_mean': zero_mean_answers(r),
         }
+        if name == 'spy':  # IOVA's quantized history makes a t fit degenerate (see quantizedUntil)
+            s['arch']['skewt'] = skewt_answers(r)
         egarch['series'][name] = egarch_answers(r)
+    garch['skewt_distribution'] = skewt_distribution()
     garch['recorded'] = today
     garch['source'] = (
         f'daily closes as recorded; {versions}; '

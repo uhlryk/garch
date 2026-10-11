@@ -115,7 +115,9 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   const model = options.model ?? 'garch';
   if (model === 'egarch') return fitEgarch(returns, options);
   const asymmetric = model === 'gjr';
-  const studentT = options.dist === 't';
+  // ν for t and skewed t; λ for skewed t
+  const studentT = options.dist === 't' || options.dist === 'skewt';
+  const skewed = options.dist === 'skewt';
   const nuMin = options.nuMin ?? T_NU_MIN;
   if (studentT && !(nuMin > 2 && nuMin < NU_MAX))
     throw new RangeError(`nuMin must lie in (2, ${NU_MAX}), got ${nuMin}`);
@@ -130,6 +132,8 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   // The unconstrained space; `heldNu` removes ν from it (a fit held on its bound).
   const spaceOf = (heldNu: number | null) => {
     const freeNu = studentT && heldNu === null;
+    const nuAt = asymmetric ? 5 : 4;
+    const lambdaAt = nuAt + (freeNu ? 1 : 0);
     const toParams = (x: readonly number[]): GarchParams => {
       const omega = Math.exp(x[1]) * variance;
       const P = logistic(x[2]);
@@ -138,16 +142,18 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       const gamma = asymmetric ? 2 * q * Math.tanh(x[4]) : 0;
       const p = { mu: x[0], omega, alpha: q - gamma / 2, gamma, beta };
       if (!studentT) return p;
-      return { ...p, nu: freeNu ? nuMin + nuSpan * logistic(x[x.length - 1]) : heldNu! };
+      const nu = freeNu ? nuMin + nuSpan * logistic(x[nuAt]) : heldNu!;
+      return skewed ? { ...p, nu, lambda: Math.tanh(x[lambdaAt]) } : { ...p, nu };
     };
     const toX = (p: GarchParams): number[] => {
-      const P = inside(persistence(p));
+      const P = inside(spacePersistence(p));
       const x = [p.mu, Math.log(p.omega / variance), logit(P), logit(inside(p.beta / P))];
       if (asymmetric) {
         const q = P - p.beta;
         x.push(Math.atanh(Math.min(Math.max(p.gamma / (2 * q), -1 + 1e-9), 1 - 1e-9)));
       }
       if (freeNu) x.push(logit(inside(((p.nu ?? START_NU) - nuMin) / nuSpan)));
+      if (skewed) x.push(Math.atanh(Math.min(Math.max(p.lambda ?? 0, -1 + 1e-9), 1 - 1e-9)));
       return x;
     };
     // negative mean log-likelihood and its gradient in x (chain rule through toParams)
@@ -174,9 +180,10 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       ];
       if (asymmetric) gx.push(-g[2] * q * (1 - th * th) + g[3] * 2 * q * (1 - th * th));
       if (freeNu) {
-        const sn = logistic(x[x.length - 1]);
+        const sn = logistic(x[nuAt]);
         gx.push(g[5] * nuSpan * sn * (1 - sn));
       }
+      if (skewed) gx.push(g[6] * (1 - p.lambda! * p.lambda!));
       return { value: -value / n, gradient: gx.map((v) => -v / n) };
     };
     return { toParams, toX, objective };
@@ -197,6 +204,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
           gamma,
           beta,
           ...(studentT ? { nu: START_NU } : {}),
+          ...(skewed ? { lambda: 0 } : {}),
         };
         const value = logLikelihood(returns, p, bc, sig2);
         if (Number.isFinite(value) && (!best || value > best.value)) best = { value, p };
@@ -206,12 +214,19 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   if (options.warmStart) {
     const w = options.warmStart;
     const nu = studentT ? Math.min(Math.max(w.nu ?? START_NU, nuMin), NU_MAX) : undefined;
-    const warm = { ...(asymmetric ? w : { ...w, gamma: 0 }), nu, mu: zeroMean ? 0 : w.mu };
-    if (warm.omega > 0 && warm.alpha >= 0 && warm.beta >= 0 && warm.alpha + warm.gamma >= 0 && persistence(warm) < 1)
+    const lambda = skewed ? Math.min(Math.max(w.lambda ?? 0, -0.99), 0.99) : undefined;
+    const warm = { ...(asymmetric ? w : { ...w, gamma: 0 }), nu, lambda, mu: zeroMean ? 0 : w.mu };
+    if (
+      warm.omega > 0 &&
+      warm.alpha >= 0 &&
+      warm.beta >= 0 &&
+      warm.alpha + warm.gamma >= 0 &&
+      spacePersistence(warm) < 1
+    )
       starts.push({ x: toX(warm), warm: true });
   }
 
-  const modes = climb(objective, toParams, starts, persistence);
+  const modes = climb(objective, toParams, starts, spacePersistence);
   // ν pushed against a bound: the optimum is the one with ν held there, where
   // the other parameters can converge (free, the logit of ν runs off to ±∞).
   let nuBound: 'lower' | 'upper' | null = null;
@@ -235,12 +250,21 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     params,
     persistence: persistence(params),
     logLikelihood: ll,
-    ...informationCriteria(ll, 3 + (zeroMean ? 0 : 1) + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0), n),
+    ...informationCriteria(
+      ll,
+      3 + (zeroMean ? 0 : 1) + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0) + (skewed ? 1 : 0),
+      n,
+    ),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: bc,
     inference: options.inference
-      ? robustStandardErrors(returns, params, bc, { gamma: asymmetric, nu: studentT && !nuBound, mu: !zeroMean })
+      ? robustStandardErrors(returns, params, bc, {
+          gamma: asymmetric,
+          nu: studentT && !nuBound,
+          lambda: skewed,
+          mu: !zeroMean,
+        })
       : null,
     nuBound,
     modes: reportModes(modes, n, persistence),
@@ -280,9 +304,9 @@ const START_EGARCH_GAMMA = [0, -0.05, -0.15];
  * start; every optimum reached is a mode. `persistence` is β.
  */
 function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
-  if (options.dist === 't')
+  if (options.dist === 't' || options.dist === 'skewt')
     throw new GarchInputError(
-      'EGARCH takes normal innovations only: under Student-t the expected variance two steps ahead is infinite',
+      'EGARCH takes normal innovations only: under (skewed) Student-t the expected variance two steps ahead is infinite',
     );
   const n = returns.length;
   const zeroMean = options.mean === 'zero';
@@ -342,7 +366,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
           returns,
           params,
           lnBc,
-          { gamma: true, nu: false, mu: !zeroMean },
+          { gamma: true, nu: false, lambda: false, mu: !zeroMean },
           egarchLogLikelihoodGradient,
         )
       : null,
@@ -355,6 +379,13 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
 function informationCriteria(ll: number, k: number, n: number) {
   return { parameterCount: k, aic: -2 * ll + 2 * k, bic: -2 * ll + k * Math.log(n) };
 }
+
+/**
+ * α + γ/2 + β — the persistence the search space is built on and keeps below
+ * 1, `arch`'s constraint whatever the innovations. Under a skewed t the
+ * reported `persistence` uses the exact down share instead.
+ */
+const spacePersistence = (p: GarchParams) => p.alpha + p.gamma / 2 + p.beta;
 
 /** EGARCH's persistence: β, the log-variance's. */
 const egarchPersistence = (p: GarchParams) => p.beta;

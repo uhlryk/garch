@@ -1,5 +1,5 @@
 {
- "recorded": "2026-10-10",
+ "recorded": "2026-10-11",
  "source": "the closes of arch-2026-09-25.json; arch 8.0.0, numpy 2.5.3, python 3.12.7; arch_model(mean='Constant', vol='EGARCH', p=1, o=1, q=1, dist='normal').fit(), forecast(horizon=20, method='simulation', simulations=200000, rng=default_rng(20261001)); scripts/arch-fixtures/generate.py",
  "series": {
   "iova": {

@@ -1,6 +1,7 @@
 import { EGARCH_ABS_MEAN } from './egarch.js';
 import { GarchInputError } from './fit.js';
 import { type GarchModel, type GarchParams, persistence } from './model.js';
+import { skewConstants, skewDraw } from './skewt.js';
 
 /**
  * Paths of the model forward from given parameters: what a fan chart, a
@@ -10,7 +11,7 @@ import { type GarchModel, type GarchParams, persistence } from './model.js';
 
 export type SimulationRequest = {
   readonly model: GarchModel;
-  /** With `nu`, the innovations are Student-t standardised to unit variance (garch and gjr only). */
+  /** With `nu`, the innovations are Student-t standardised to unit variance, with `lambda` too Hansen's skewed t (garch and gjr only). */
   readonly params: GarchParams;
   /**
    * Where the recursion stands: s and e of the last observed return. With
@@ -91,13 +92,16 @@ function gammaVariate(shape: number, normal: () => number, uniform: () => number
   }
 }
 
-/** Unit-variance innovations: normal, or Student-t with ν scaled by √((ν − 2)/ν). */
-function innovations(nu: number | undefined, seed: number): () => number {
+/** Unit-variance innovations: normal, Student-t with ν scaled by √((ν − 2)/ν), or Hansen's skewed t. */
+function innovations(nu: number | undefined, lambda: number | undefined, seed: number): () => number {
   const uniform = uniforms(seed);
   const normal = normals(uniform);
   if (nu === undefined) return normal;
   const scale = Math.sqrt((nu - 2) / nu);
-  return () => (normal() / Math.sqrt((2 * gammaVariate(nu / 2, normal, uniform)) / nu)) * scale;
+  const standardT = () => (normal() / Math.sqrt((2 * gammaVariate(nu / 2, normal, uniform)) / nu)) * scale;
+  if (lambda === undefined) return standardT;
+  const { a, b } = skewConstants(nu, lambda);
+  return () => skewDraw(lambda, a, b, uniform(), standardT());
 }
 
 /**
@@ -111,6 +115,8 @@ export function simulate(request: SimulationRequest): Simulation {
   if (!(Number.isInteger(steps) && steps >= 1)) throw new RangeError(`steps must be a positive integer, got ${steps}`);
   if (!(Number.isInteger(paths) && paths >= 1)) throw new RangeError(`paths must be a positive integer, got ${paths}`);
   if (p.nu !== undefined && !(p.nu > 2)) throw new RangeError(`ν must exceed 2, got ${p.nu}`);
+  if (p.lambda !== undefined && (p.nu === undefined || !(p.lambda > -1 && p.lambda < 1)))
+    throw new RangeError(`λ needs ν and must lie in (−1, 1), got ${p.lambda}`);
   if (model === 'egarch' && p.nu !== undefined)
     throw new GarchInputError('EGARCH takes normal innovations only: its expected variance past one step is infinite');
   const known = request.lastVariance !== undefined;
@@ -136,7 +142,7 @@ export function simulate(request: SimulationRequest): Simulation {
     first = p.omega + p.alpha * e * e + gamma * (e < 0 ? e * e : 0) + p.beta * request.lastVariance!;
   } else first = p.omega / (1 - persistence({ ...p, gamma }));
 
-  const draw = innovations(p.nu, request.seed);
+  const draw = innovations(p.nu, p.lambda, request.seed);
   const returns: Float64Array[] = [];
   const variance: Float64Array[] = [];
   for (let path = 0; path < paths; path += 1) {

@@ -12,6 +12,11 @@
  * asymmetric term, the expected share of down moves).
  */
 
+import { skewConstants, skewDownShare, skewLogDensity } from './skewt.js';
+import { digamma, logGamma } from './special.js';
+
+export { digamma, logGamma } from './special.js';
+
 /** `egarch` is the log-variance model in `egarch.ts`: same parameter names, other meanings. */
 export type GarchModel = 'garch' | 'gjr' | 'egarch';
 
@@ -23,11 +28,14 @@ export type GarchParams = {
   /** 0 for the symmetric model. */
   readonly gamma: number;
   readonly beta: number;
-  /** Degrees of freedom of Student-t innovations (> 2); absent for normal ones. */
+  /** Degrees of freedom of Student-t or skewed-t innovations (> 2); absent for normal ones. */
   readonly nu?: number;
+  /** Skewness of Hansen's skewed-t innovations, in (−1, 1); absent for normal and t. */
+  readonly lambda?: number;
 };
 
-export type Distribution = 'normal' | 't';
+/** The innovations: normal, Student-t (ν), or Hansen's skewed t (ν, λ) — `arch`'s `skewt`. */
+export type Distribution = 'normal' | 't' | 'skewt';
 
 /** Refuses anything but an integer ≥ `min` — a count of steps, rows or windows. */
 export function checkCount(name: string, value: number, min = 1): void {
@@ -40,32 +48,6 @@ export type MeanModel = 'constant' | 'zero';
 
 const LOG_2PI = Math.log(2 * Math.PI);
 const LOG_PI = Math.log(Math.PI);
-
-const LANCZOS = [
-  0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
-  12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
-];
-
-/** ln Γ(x) for x > 0 — Lanczos (g = 7), relative error ~1e-15. */
-export function logGamma(x: number): number {
-  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
-  const z = x - 1;
-  let a = LANCZOS[0];
-  const t = z + 7.5;
-  for (let i = 1; i < 9; i += 1) a += LANCZOS[i] / (z + i);
-  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(a);
-}
-
-/** ψ(x) = d ln Γ(x) / dx for x > 0 — recurrence up to 6, then the asymptotic series. */
-export function digamma(x: number): number {
-  let r = 0;
-  while (x < 6) {
-    r -= 1 / x;
-    x += 1;
-  }
-  const f = 1 / (x * x);
-  return r + Math.log(x) - 0.5 / x - f * (1 / 12 - f * (1 / 120 - f * (1 / 252 - f * (1 / 240 - f / 132))));
-}
 
 /** The part of a standardised-t log density that depends on ν only. */
 function tConstant(nu: number): number {
@@ -86,9 +68,17 @@ export function backcast(values: ArrayLike<number>, mean = 0): number {
   return sum / weights;
 }
 
-/** α + γ/2 + β: how much of today's variance shock is still there tomorrow. */
+/**
+ * E[z²·1{z < 0}]: the share of a unit shock's variance that comes from down
+ * moves — ½ for any symmetric innovation, other for a skewed t.
+ */
+export function downShare(p: GarchParams): number {
+  return p.lambda === undefined || p.nu === undefined ? 0.5 : skewDownShare(p.nu, p.lambda);
+}
+
+/** α + κ·γ + β, κ the down share (½ unless skewed): how much of today's variance shock is still there tomorrow. */
 export function persistence(p: GarchParams): number {
-  return p.alpha + p.gamma / 2 + p.beta;
+  return p.alpha + (p.gamma ? downShare(p) * p.gamma : 0) + p.beta;
 }
 
 /**
@@ -107,6 +97,7 @@ export function logLikelihood(
   let prevNeg = 0.5 * bc;
   let prevS = bc;
   const nu = p.nu;
+  const skew = nu !== undefined && p.lambda !== undefined ? skewConstants(nu, p.lambda) : null;
   const c = nu === undefined ? 0 : tConstant(nu);
   for (let t = 0; t < returns.length; t += 1) {
     const s = p.omega + p.alpha * prevE2 + p.gamma * prevNeg + p.beta * prevS;
@@ -116,7 +107,9 @@ export function logLikelihood(
     const l =
       nu === undefined
         ? -0.5 * (LOG_2PI + Math.log(s) + e2 / s)
-        : c - 0.5 * Math.log(s) - ((nu + 1) / 2) * Math.log1p(e2 / (s * (nu - 2)));
+        : skew
+          ? skewLogDensity(e / Math.sqrt(s), nu, p.lambda!, skew).value - 0.5 * Math.log(s)
+          : c - 0.5 * Math.log(s) - ((nu + 1) / 2) * Math.log1p(e2 / (s * (nu - 2)));
     if (contributions) contributions[t] = l;
     total += l;
     prevE2 = e2;
@@ -128,9 +121,10 @@ export function logLikelihood(
 
 /**
  * The log-likelihood and its analytic gradient with respect to
- * (μ, ω, α, γ, β) — and ν, a sixth entry, for t innovations. With `scores`,
- * also each observation's gradient — a row of n per parameter (a sixth row
- * takes ν's) — for the robust covariance.
+ * (μ, ω, α, γ, β) — and ν, a sixth entry, for t and skewed-t innovations, λ
+ * a seventh for skewed t. With `scores`, also each observation's gradient — a
+ * row of n per parameter (rows six and seven take ν's and λ's) — for the
+ * robust covariance.
  */
 export function logLikelihoodGradient(
   returns: ArrayLike<number>,
@@ -139,7 +133,8 @@ export function logLikelihoodGradient(
   scores?: Float64Array[],
 ): { value: number; gradient: number[] } {
   const nu = p.nu;
-  const g = nu === undefined ? [0, 0, 0, 0, 0] : [0, 0, 0, 0, 0, 0];
+  const skew = nu !== undefined && p.lambda !== undefined ? skewConstants(nu, p.lambda) : null;
+  const g = new Array<number>(nu === undefined ? 5 : skew ? 7 : 6).fill(0);
   const c = nu === undefined ? 0 : tConstant(nu);
   const dcNu = nu === undefined ? 0 : 0.5 * digamma((nu + 1) / 2) - 0.5 * digamma(nu / 2) - 0.5 / (nu - 2);
   let total = 0;
@@ -177,6 +172,20 @@ export function logLikelihoodGradient(
       total += -0.5 * (LOG_2PI + Math.log(s) + e2 / s);
       ds = -0.5 * (1 / s - e2 / (s * s));
       de = e / s;
+    } else if (skew) {
+      // l = ln f(z) − ½ ln s,  z = e/√s
+      const root = Math.sqrt(s);
+      const z = e / root;
+      const f = skewLogDensity(z, nu, p.lambda!, skew);
+      total += f.value - 0.5 * Math.log(s);
+      ds = -0.5 / s - (f.dz * z) / (2 * s);
+      de = -f.dz / root;
+      g[5] += f.dNu;
+      g[6] += f.dLambda;
+      if (scores && scores.length > 6) {
+        scores[5][t] = f.dNu;
+        scores[6][t] = f.dLambda;
+      }
     } else {
       // q = e² / (s(ν − 2)); l = c(ν) − ½ ln s − (ν+1)/2 · ln(1 + q)
       const q = e2 / (s * (nu - 2));

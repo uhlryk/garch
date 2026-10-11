@@ -22,9 +22,17 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 - `@krzysztofsztompka/garch/web`: the worker pool on Web Workers
   (`GarchWebPool`, ES modules only), bundled by Vite and webpack without
   configuration. `WorkerPool` is the transport-independent pool both share.
+- Hansen's skewed-t innovations, `dist: 'skewt'` (`params.lambda`), for garch
+  and gjr: fitting with an analytic gradient, robust inference, VaR and ES,
+  simulation; `skewQuantile`, `skewPartialMoments`, `skewDownShare`,
+  `downShare`. They match `arch`'s `SkewStudent`.
 
 ### Changed
 
+- `persistence` and the GJR forecast use the down share E[z²·1{z < 0}]
+  (½ for normal and t innovations, as before; exact for a skewed t).
+- `logGamma`, `digamma`, `normalQuantile`, `studentCdf` and `studentQuantile`
+  live in one module; `studentQuantile` takes any p in (0, 1).
 - Robust standard errors take the set of fitted parameters, so a parameter
   held fixed (μ under a zero mean, a ν on its bound) gets NaN.
 

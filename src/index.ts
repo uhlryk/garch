@@ -32,6 +32,7 @@ export {
   backcast,
   type Distribution,
   digamma,
+  downShare,
   type GarchModel,
   type GarchParams,
   logGamma,
@@ -56,6 +57,7 @@ export {
   varBacktest,
 } from './risk.js';
 export { type Simulation, type SimulationRequest, simulate } from './simulate.js';
+export { skewDownShare, skewPartialMoments, skewQuantile } from './skewt.js';
 export {
   type Baseline,
   type ForecastsRequest,

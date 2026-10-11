@@ -1,7 +1,11 @@
 import { chiSquareSurvival } from './diagnostics.js';
-import type { GarchModel, MeanModel } from './model.js';
-import { logGamma } from './model.js';
+import type { Distribution, GarchModel, MeanModel } from './model.js';
+import { logGamma, normalQuantile, studentQuantile } from './special.js';
+
+export { normalQuantile, studentCdf, studentQuantile } from './special.js';
+
 import type { Simulation } from './simulate.js';
+import { skewPartialMoments, skewQuantile } from './skewt.js';
 import { segments, validationWindows, walkForwardSteps } from './validation.js';
 
 /**
@@ -19,91 +23,9 @@ const checkLevel = (level: number) => {
   if (!(level > 0 && level < 0.5)) throw new RangeError(`level must lie in (0, 0.5), got ${level}`);
 };
 
-/** Φ⁻¹(p) — Acklam's rational approximation, relative error < 1.2e-9. */
-export function normalQuantile(p: number): number {
-  if (!(p > 0 && p < 1)) throw new RangeError(`p must lie in (0, 1), got ${p}`);
-  const a = [
-    -39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239,
-  ];
-  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
-  const c = [
-    -0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968,
-    2.938163982698783,
-  ];
-  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
-  const low = 0.02425;
-  if (p < low || p > 1 - low) {
-    const q = Math.sqrt(-2 * Math.log(p < low ? p : 1 - p));
-    const x =
-      (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
-      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
-    return p < low ? x : -x;
-  }
-  const q = p - 0.5;
-  const r = q * q;
-  return (
-    ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q) /
-    (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
-  );
-}
-
-/** The regularised incomplete beta I_x(a, b) — Lentz's continued fraction, on the side where it converges. */
-function incompleteBeta(x: number, a: number, b: number): number {
-  if (x <= 0) return 0;
-  if (x >= 1) return 1;
-  const front = Math.exp(logGamma(a + b) - logGamma(a) - logGamma(b) + a * Math.log(x) + b * Math.log(1 - x));
-  if (x > (a + 1) / (a + b + 2)) return 1 - incompleteBeta(1 - x, b, a);
-  const tiny = 1e-300;
-  let c = 1;
-  let d = 1 - ((a + b) * x) / (a + 1);
-  if (Math.abs(d) < tiny) d = tiny;
-  d = 1 / d;
-  let h = d;
-  for (let m = 1; m < 1000; m += 1) {
-    const m2 = 2 * m;
-    let aa = (m * (b - m) * x) / ((a + m2 - 1) * (a + m2));
-    d = 1 + aa * d;
-    if (Math.abs(d) < tiny) d = tiny;
-    c = 1 + aa / c;
-    if (Math.abs(c) < tiny) c = tiny;
-    d = 1 / d;
-    h *= d * c;
-    aa = (-(a + m) * (a + b + m) * x) / ((a + m2) * (a + m2 + 1));
-    d = 1 + aa * d;
-    if (Math.abs(d) < tiny) d = tiny;
-    c = 1 + aa / c;
-    if (Math.abs(c) < tiny) c = tiny;
-    d = 1 / d;
-    const delta = d * c;
-    h *= delta;
-    if (Math.abs(delta - 1) < 1e-16) break;
-  }
-  return (front * h) / a;
-}
-
-/** P(T ≤ t) for Student's t with ν degrees of freedom (not standardised). */
-export function studentCdf(t: number, nu: number): number {
-  const tail = 0.5 * incompleteBeta(nu / (nu + t * t), nu / 2, 0.5);
-  return t < 0 ? tail : 1 - tail;
-}
-
-/** The p-quantile of Student's t with ν degrees of freedom, p < 0.5: bisection on the CDF, to double precision. */
-export function studentQuantile(p: number, nu: number): number {
-  if (!(p > 0 && p < 0.5)) throw new RangeError(`p must lie in (0, 0.5), got ${p}`);
-  if (!(nu > 0)) throw new RangeError(`ν must be positive, got ${nu}`);
-  let lo = -1;
-  while (studentCdf(lo, nu) > p) lo *= 2;
-  let hi = 0;
-  for (let i = 0; i < 200 && hi - lo > 1e-15 * Math.max(1, Math.abs(lo)); i += 1) {
-    const mid = (lo + hi) / 2;
-    if (studentCdf(mid, nu) > p) hi = mid;
-    else lo = mid;
-  }
-  return (lo + hi) / 2;
-}
-
 /**
  * VaR and ES of r = μ + √s·z, z standard normal or — with `nu` — Student-t
+ * (skewed t with `lambda` too)
  * standardised to unit variance, the innovations a fit assumed. For a
  * one-step forecast: `mean` μ, `variance` s_{T+1}.
  */
@@ -111,9 +33,11 @@ export function tailRisk(request: {
   readonly mean: number;
   readonly variance: number;
   readonly nu?: number;
+  /** With `nu`, a skewed t (Hansen's, as fitted with `dist: 'skewt'`). */
+  readonly lambda?: number;
   readonly level: number;
 }): TailRisk {
-  const { mean, variance, nu, level } = request;
+  const { mean, variance, nu, lambda, level } = request;
   checkLevel(level);
   if (!(variance > 0)) throw new RangeError(`variance must be positive, got ${variance}`);
   const sd = Math.sqrt(variance);
@@ -123,6 +47,13 @@ export function tailRisk(request: {
     return { valueAtRisk: -(mean + sd * q), expectedShortfall: -(mean - (sd * density) / level) };
   }
   if (!(nu > 2)) throw new RangeError(`ν must exceed 2, got ${nu}`);
+  if (lambda !== undefined) {
+    if (!(lambda > -1 && lambda < 1)) throw new RangeError(`λ must lie in (−1, 1), got ${lambda}`);
+    const q = skewQuantile(level, nu, lambda);
+    // E[z | z ≤ q] = E[z·1{z ≤ q}] / level
+    const tailMean = skewPartialMoments(q, nu, lambda)[1] / level;
+    return { valueAtRisk: -(mean + sd * q), expectedShortfall: -(mean + sd * tailMean) };
+  }
   const scale = Math.sqrt((nu - 2) / nu);
   const q = studentQuantile(level, nu);
   const density = Math.exp(
@@ -221,7 +152,7 @@ export function coverageTest(violations: readonly boolean[], level: number): Cov
 
 export type VarBacktestOptions = {
   readonly model?: GarchModel;
-  readonly dist?: 'normal' | 't';
+  readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
   readonly level: number;
@@ -258,6 +189,7 @@ export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOpti
       mean: s.fit.params.mu,
       variance: s.forecast,
       nu: s.fit.params.nu,
+      lambda: s.fit.params.lambda,
       level: options.level,
     });
     forecasts.push({ origin, valueAtRisk, realized: all[origin + 1] });

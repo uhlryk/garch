@@ -9,7 +9,7 @@ export type LikelihoodGradient = (
   scores?: Float64Array[],
 ) => { value: number; gradient: number[] };
 
-const KEYS = ['mu', 'omega', 'alpha', 'gamma', 'beta', 'nu'] as const;
+const KEYS = ['mu', 'omega', 'alpha', 'gamma', 'beta', 'nu', 'lambda'] as const;
 
 /** erfc(x) for x ≥ 0 — Numerical Recipes' Chebyshev fit, relative error < 1.2e-7. */
 function erfc(x: number): number {
@@ -55,8 +55,13 @@ export function invert(matrix: readonly (readonly number[])[]): number[][] | nul
   return a.map((row) => row.slice(n));
 }
 
-/** Which parameters were fitted: γ (asymmetric models), ν (t, interior), μ (a constant mean). */
-export type FreeParameters = { readonly gamma: boolean; readonly nu: boolean; readonly mu: boolean };
+/** Which parameters were fitted: γ (asymmetric models), ν (t or skewed t, interior), λ (skewed t), μ (a constant mean). */
+export type FreeParameters = {
+  readonly gamma: boolean;
+  readonly nu: boolean;
+  readonly lambda: boolean;
+  readonly mu: boolean;
+};
 
 /**
  * Bollerslev–Wooldridge robust covariance, `arch`'s default `cov_type="robust"`:
@@ -75,7 +80,13 @@ export function robustStandardErrors(
   likelihood: LikelihoodGradient = logLikelihoodGradient,
 ): Inference | null {
   const n = returns.length;
-  const keys = KEYS.filter((k) => (k !== 'gamma' || free.gamma) && (k !== 'nu' || free.nu) && (k !== 'mu' || free.mu));
+  const keys = KEYS.filter(
+    (k) =>
+      (k !== 'gamma' || free.gamma) &&
+      (k !== 'nu' || free.nu) &&
+      (k !== 'lambda' || free.lambda) &&
+      (k !== 'mu' || free.mu),
+  );
   const index = keys.map((k) => KEYS.indexOf(k));
   const m = keys.length;
   const scores = KEYS.map(() => new Float64Array(n));
@@ -103,6 +114,7 @@ export function robustStandardErrors(
   if (!inverse) return null;
   const se: Record<string, number> = { mu: NaN, omega: NaN, alpha: NaN, gamma: NaN, beta: NaN };
   if (params.nu !== undefined) se.nu = NaN;
+  if (params.lambda !== undefined) se.lambda = NaN;
   const pv: Record<string, number> = { ...se };
   for (let a = 0; a < m; a += 1) {
     let v = 0;

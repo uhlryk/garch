@@ -41,7 +41,9 @@ What it does not do, deliberately:
 - **No prices and no percent.** It takes returns in whatever units it is given.
 - **No interpretation.** When σ̂ is worth quoting, or what a regime means, is the caller's.
 - **No trimming.** `quantizedUntil` says where a coarse-grid stretch of history ends; whether to fit from there is the caller's.
-- **No EGARCH with Student-t innovations.** Its expected variance two steps ahead is infinite (below).
+- **No EGARCH with Student-t or skewed-t innovations.** Its expected variance two steps ahead is infinite (below).
+- **No AR or ARMA mean.** The mean is a constant or zero. Daily returns have next to no autocorrelation to model; a caller who needs it can filter the returns first and fit with `mean: 'zero'`.
+- **No GARCH(p, q) beyond (1, 1).** Higher orders rarely beat (1, 1) out of sample, and they need a different stationarity parameterisation; every model here is (1, 1).
 
 ## The model
 
@@ -66,6 +68,20 @@ parameter with its analytic gradient and robust standard error.
 - **ν ≥ 4 by default** (`nuMin`; `arch` allows 2.05). A t variance is scale²·ν/(ν−2), and near 2 it is barely defined. Fitted freely on daily equity returns, ν̂ ≈ 2.1–2.5 gave a variance forecast worse than naive; at 4 the kurtosis is still infinite, but the forecast is stable.
 - **A ν the data push past a bound is held there.** Free, the logit of ν runs off and the fit never converges. The fit is refitted with ν fixed on the bound (the constrained optimum) and reports `nuBound: 'lower' | 'upper'`. A held ν has no standard error.
 - **Exact-zero returns break it.** Prices recorded on a coarse grid make most days an exact zero: cents on a stock worth $0.08 split-adjusted, or a penny stock's cents times a 1:100 reverse split. On an exact zero the variance can run to 0 while the likelihood rises without bound. The normal likelihood punishes that on the next non-zero day (e²/s); the t likelihood only logarithmically, so the fit degenerates to ω ≈ 0 and μ ≈ 0, **and can still report `converged`**. `quantizedUntil(returns)` returns the index after the last 250-return window with more than 20 % exact zeros; fit t from there.
+
+### Skewed-t innovations (`dist: 'skewt'`)
+
+Hansen's skewed t, `arch`'s `SkewStudent`: standardised to mean 0 and variance
+1, with ν (`arch`'s η) and λ ∈ (−1, 1); λ < 0 leans the mass left, a fatter
+loss tail. Each side of the density is half a standardised t, so its CDF,
+quantile and partial moments E[zᵏ·1{z < x}] are closed forms over the
+incomplete beta; they agree with `arch`'s to 1e-14. The gradient is analytic
+in λ and ν as well, λ has a robust standard error and p-value, and ν has the
+same floor and bound handling as under t.
+
+- **GJR's asymmetry under a skew.** A down move's share of a unit shock's variance, κ = E[z²·1{z < 0}], is ½ only for a symmetric innovation; under a skewed t it is computed exactly (`downShare`, `skewDownShare`). `persistence` and the forecast use κ: s_{T+k} = ω + (α + κγ + β)·s_{T+k−1}. `arch` uses ½ there whatever the distribution, so for a skewed GJR its analytic forecast and this one differ by that much; the simulated paths here agree with this one. The search space keeps `arch`'s constraint α + γ/2 + β < 1.
+- **Against `arch`** on SPY: garch and gjr fits to ~1e-5, with an equal or higher likelihood, and λ's and γ's p-values within 2 %.
+- **VaR and ES** take λ (`tailRisk({ ..., nu, lambda })`), and `simulate` draws skewed-t innovations when the parameters carry λ.
 
 ### EGARCH (`model: 'egarch'`)
 
@@ -217,6 +233,7 @@ fit.modes;                     // every optimum reached, best first
 fit.aic; fit.bic;              // as arch reports them; a ν held on a bound is not counted
 fitGarch(returns, { model: 'egarch', inference: true });          // γ < 0: leverage; normal innovations only
 fitGarch(returns, { model: 'gjr', mean: 'zero' });                // μ held at 0
+fitGarch(returns, { model: 'gjr', dist: 'skewt', inference: true }); // → params.nu, params.lambda; λ < 0: a fatter loss tail
 fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t on the fine-grained history
 // → params.nu, nuBound: 'lower' | 'upper' | null
 
@@ -274,6 +291,7 @@ the tests also run it in-process.
 - **Worker round trip.** The same answer as in-process, an input refusal kept as an input refusal, and a timeout that terminates the worker.
 - **The modes.** Best first, the fit being the first; the warm start's optimum marked; rivals only within the asked distance.
 - **Student-t.** The gradient against finite differences, ν included. ν is recovered on a simulated t-GARCH path. A ν below the floor is held and converges, and its standard error is NaN. Robust SE come with a free ν.
+- **Skewed t.** `arch`'s `SkewStudent` quantiles and partial moments to 1e-12; the gradient against finite differences, ν and λ included; ν and λ recovered on a simulated path; SPY's garch and gjr fits against `arch`'s; the skewed VaR and ES against the model's own paths; the simulated variance against the forecast with the exact down share.
 - **Weighting.** Equal weights before the burn-in; the better model dominates after it; changing a forecast whose window ends after an origin does not move that origin's weights; the pool's answer equals the in-process one.
 - **EGARCH.** The gradient against finite differences. A simulated path's parameters, leverage sign included. The closed-form forecast against its own Monte Carlo. `arch` 8.0.0's optimum, γ p-value and simulated forecast. A t EGARCH refused.
 - **Quantized history.** On IOVA's frozen closes: the cut lands where the reverse-split cents end, t degenerates before it (ω ≈ 0 while `converged`), and fits cleanly after it.
