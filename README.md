@@ -43,6 +43,7 @@ What it does not do, deliberately:
 - **No trimming.** `quantizedUntil` says where a coarse-grid stretch of history ends; whether to fit from there is the caller's.
 - **No EGARCH with Student-t or skewed-t innovations.** Its expected variance two steps ahead is infinite (below).
 - **No AR or ARMA mean.** The mean is a constant or zero. Daily returns have next to no autocorrelation to model; a caller who needs it can filter the returns first and fit with `mean: 'zero'`.
+- **No GED innovations.** Normal, t and skewed t cover thin tails, fat tails and a skew; GED adds a tail shape between normal and t that daily equity returns rarely ask for.
 - **No GARCH(p, q) beyond (1, 1).** Higher orders rarely beat (1, 1) out of sample, and they need a different stationarity parameterisation; every model here is (1, 1).
 
 ## The model
