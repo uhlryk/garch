@@ -415,6 +415,9 @@ each new export, a Tests bullet, and a CHANGELOG `Unreleased` entry
 (`CLAUDE.md` and the issue template list it). CI runs `npm run docs:check`,
 which fails when an export has no API reference row.
 
+`main` is protected by a ruleset: no deletion, no force push, and a change
+from anyone but the owner lands only with CI green on Node 20, 22 and 24.
+
 ## Releasing
 
 Move `CHANGELOG.md`'s `Unreleased` entries under the new version, set

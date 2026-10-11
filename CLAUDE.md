@@ -25,6 +25,8 @@ Done means all of these, in the same commit as the code:
 
 ## Workflow
 
-Commit straight to `main`, one commit per issue, `Closes #N`. Releases: move
+Commit straight to `main`, one commit per issue, `Closes #N` — the owner bypasses
+the `main` ruleset (no deletion, no force push, `test (20|22|24)` required for
+everyone else, Dependabot PRs included); never force-push. Releases: move
 `Unreleased` in CHANGELOG under the new version, bump `package.json`, push tag
 `v<version>` — `release.yml` publishes via npm trusted publishing (no token).
