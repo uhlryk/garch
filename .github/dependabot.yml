@@ -9,6 +9,13 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    # a major TypeScript (7: the Go compiler) or Node types bump lands by hand,
+    # with TypeDoc's support for it and dist/ compared before and after
+    ignore:
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     commit-message:
       prefix: chore
   - package-ecosystem: github-actions
