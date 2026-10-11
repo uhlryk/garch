@@ -166,21 +166,79 @@ def extend_answers(r: np.ndarray) -> dict:
     }
 
 
-def gjr_loglik(r: np.ndarray, mu: float, omega: float, alpha: float, gamma: float, beta: float) -> float:
+def gjr_loglik(
+    r: np.ndarray, mu: float, omega: float, alpha: float, gamma: float, beta: float,
+    delta: float = 0.0, x: np.ndarray | None = None,
+) -> float:
     """arch's GJR-GARCH(1,1) normal log-likelihood, written out: the recursion from arch's
-    backcast (0.94-weighted mean of the first 75 squared residuals about the sample mean)."""
+    backcast (0.94-weighted mean of the first 75 squared residuals about the sample mean).
+    With x, GARCH-X: + δ·x_{t−1}, x_{−1} the same 0.94-weighted mean of the first 75 x."""
     e = r - mu
     tau = min(75, len(r))
     w = 0.94 ** np.arange(tau)
     bc = float(w @ (r[:tau] - r.mean()) ** 2 / w.sum())
     s = np.empty(len(r))
     prev_e2, prev_neg, prev_s = bc, 0.5 * bc, bc
+    prev_x = float(w @ x[:tau] / w.sum()) if x is not None else 0.0
     for t in range(len(r)):
-        s[t] = omega + alpha * prev_e2 + gamma * prev_neg + beta * prev_s
+        s[t] = omega + alpha * prev_e2 + gamma * prev_neg + beta * prev_s + delta * prev_x
         prev_e2 = e[t] ** 2
         prev_neg = prev_e2 if e[t] < 0 else 0.0
         prev_s = s[t]
+        if x is not None:
+            prev_x = x[t]
     return float(-0.5 * np.sum(np.log(2 * np.pi) + np.log(s) + e**2 / s))
+
+
+X_WINDOW = 5
+
+
+def trailing_square_mean(r: np.ndarray) -> np.ndarray:
+    """x_t = the mean of r² over the last X_WINDOW returns (fewer at the start): a realised-variance
+    proxy known at t, what the GARCH-X fixture uses for x."""
+    sq = r**2
+    return np.array([sq[max(0, t - X_WINDOW + 1) : t + 1].mean() for t in range(len(r))])
+
+
+def garch_x_answers(r: np.ndarray) -> dict:
+    """arch has exogenous terms in the mean only: GARCH-X's likelihood written out (gjr_loglik
+    with δ·x_{t−1}) and maximised by scipy from several starts, garch and gjr, normal."""
+    x = trailing_square_mean(r)
+    out = {'window': X_WINDOW}
+    for model, o in (('garch', 0), ('gjr', 1)):
+        res = fit(r, 'GARCH', o)
+        p = res.params
+
+        def unpack(v):
+            return (v[0], v[1], v[2], v[3] if o else 0.0, v[4] if o else v[3], v[-1])
+
+        def negative(v):
+            mu, omega, alpha, gamma, beta, delta = unpack(v)
+            with np.errstate(invalid='ignore', divide='ignore'):
+                value = -gjr_loglik(r, mu, omega, alpha, gamma, beta, delta, x)
+            return value if np.isfinite(value) else 1e300
+
+        bounds = [(None, None), (1e-8, None), (0, 1)] + ([(-1, 2)] if o else []) + [(0, 1), (0, 1)]
+        constraints = [{'type': 'ineq', 'fun': lambda v: 1 - 1e-6 - (v[2] + (v[3] / 2 if o else 0) + v[-2])}]
+        if o:
+            constraints.append({'type': 'ineq', 'fun': lambda v: v[2] + v[3]})
+        best = None
+        for share in (0.0, 0.1, 0.3):
+            gamma0 = [max(p['gamma[1]'], 0.0)] if o else []
+            beta0 = p['beta[1]'] * (1 - share)
+            v0 = [p['mu'], p['omega'], p['alpha[1]'] * (1 - share)] + gamma0 + [beta0, share * 0.3]
+            run = optimize.minimize(
+                negative, v0, method='SLSQP', bounds=bounds, constraints=constraints,
+                options={'ftol': 1e-14, 'maxiter': 2000},
+            )
+            if best is None or run.fun < best.fun:
+                best = run
+        mu, omega, alpha, gamma, beta, delta = (float(v) for v in unpack(best.x))
+        out[model] = {
+            'mu': mu, 'omega': omega, 'alpha': alpha, 'gamma': gamma if o else None, 'beta': beta,
+            'delta': delta, 'loglik': float(-best.fun),
+        }
+    return out
 
 
 def targeting_answers(r: np.ndarray) -> dict:
@@ -477,6 +535,7 @@ def main() -> None:
             s['arch']['skewt'] = skewt_answers(r)
             s['arch']['extend'] = extend_answers(r)
             s['arch']['fhs'] = fhs_answers(r)
+            s['arch']['garch_x'] = garch_x_answers(r)
         egarch['series'][name] = egarch_answers(r)
     garch['skewt_distribution'] = skewt_distribution()
     garch['diebold_mariano'] = diebold_mariano_cases()

@@ -1,7 +1,7 @@
 {
   "name": "@krzysztofsztompka/garch",
   "version": "0.2.0",
-  "description": "GARCH, GJR-GARCH and EGARCH by maximum likelihood — normal, Student-t or skewed-t innovations — with forecasts, walk-forward validation, simulation, value at risk and diagnostics; DCC-GARCH for several assets; pure TypeScript, no runtime dependencies, worker pools for Node and the browser",
+  "description": "GARCH, GJR-GARCH and EGARCH by maximum likelihood — normal, Student-t or skewed-t innovations, GARCH-X drivers — with forecasts, walk-forward validation, simulation, value at risk and diagnostics; DCC-GARCH for several assets; pure TypeScript, no runtime dependencies, worker pools for Node and the browser",
   "keywords": [
     "garch",
     "gjr-garch",
@@ -19,6 +19,7 @@
     "simulation",
     "web-workers",
     "dcc-garch",
+    "garch-x",
     "correlation",
     "portfolio"
   ],

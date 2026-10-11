@@ -32,7 +32,30 @@ export type GarchParams = {
   readonly nu?: number;
   /** Skewness of Hansen's skewed-t innovations, in (−1, 1); absent for normal and t. */
   readonly lambda?: number;
+  /** GARCH-X: the weight δ ≥ 0 of the exogenous x_{t−1} in s_t; absent without one. */
+  readonly delta?: number;
 };
+
+/**
+ * A GARCH-X driver: x_t ≥ 0 for every return (an implied or realised
+ * variance, say), entering s_{t+1} as δ·x_t, and the x_{−1} the recursion
+ * starts from (`exogenousBackcast`).
+ */
+export type Exogenous = { readonly values: ArrayLike<number>; readonly backcast: number };
+
+/** x_{−1}: the 0.94-weighted mean of the first 75 values of x, as `backcast` weighs squared residuals. */
+export function exogenousBackcast(values: ArrayLike<number>): number {
+  const tau = Math.min(75, values.length);
+  let weight = 1;
+  let weights = 0;
+  let sum = 0;
+  for (let i = 0; i < tau; i += 1) {
+    sum += weight * values[i];
+    weights += weight;
+    weight *= 0.94;
+  }
+  return sum / weights;
+}
 
 /** The innovations: normal, Student-t (ν), or Hansen's skewed t (ν, λ) — `arch`'s `skewt`. */
 export type Distribution = 'normal' | 't' | 'skewt';
@@ -91,12 +114,21 @@ export function logLikelihood(
   bc: number,
   variance: Float64Array,
   contributions?: Float64Array,
+  x?: Exogenous,
 ): number {
-  return continueLikelihood(returns, p, { e2: bc, neg: 0.5 * bc, s: bc }, 0, variance, contributions);
+  return continueLikelihood(
+    returns,
+    p,
+    { e2: bc, neg: 0.5 * bc, s: bc, x: x?.backcast ?? 0 },
+    0,
+    variance,
+    contributions,
+    x?.values,
+  );
 }
 
-/** Where the GARCH / GJR recursion stands after an observation: e², e²·[e < 0] and s. */
-export type RecursionState = { readonly e2: number; readonly neg: number; readonly s: number };
+/** Where the GARCH / GJR recursion stands after an observation: e², e²·[e < 0], s and x (0 without one). */
+export type RecursionState = { readonly e2: number; readonly neg: number; readonly s: number; readonly x: number };
 
 /**
  * `logLikelihood` carried on from a state and a running total: over the
@@ -110,15 +142,18 @@ export function continueLikelihood(
   total: number,
   variance: Float64Array,
   contributions?: Float64Array,
+  x?: ArrayLike<number>,
 ): number {
   let prevE2 = from.e2;
   let prevNeg = from.neg;
   let prevS = from.s;
+  let prevX = from.x;
+  const delta = p.delta ?? 0;
   const nu = p.nu;
   const skew = nu !== undefined && p.lambda !== undefined ? skewConstants(nu, p.lambda) : null;
   const c = nu === undefined ? 0 : tConstant(nu);
   for (let t = 0; t < returns.length; t += 1) {
-    const s = p.omega + p.alpha * prevE2 + p.gamma * prevNeg + p.beta * prevS;
+    const s = p.omega + p.alpha * prevE2 + p.gamma * prevNeg + p.beta * prevS + delta * prevX;
     const e = returns[t] - p.mu;
     const e2 = e * e;
     variance[t] = s;
@@ -133,6 +168,7 @@ export function continueLikelihood(
     prevE2 = e2;
     prevNeg = e < 0 ? e2 : 0;
     prevS = s;
+    if (x) prevX = x[t];
   }
   return total;
 }
@@ -140,19 +176,24 @@ export function continueLikelihood(
 /**
  * The log-likelihood and its analytic gradient with respect to
  * (μ, ω, α, γ, β) — and ν, a sixth entry, for t and skewed-t innovations, λ
- * a seventh for skewed t. With `scores`, also each observation's gradient — a
- * row of n per parameter (rows six and seven take ν's and λ's) — for the
- * robust covariance.
+ * a seventh for skewed t; with an exogenous x, δ is the eighth (ν's and λ's
+ * entries 0 where they are absent). With `scores`, also each observation's
+ * gradient — a row of n per parameter, in the same order — for the robust
+ * covariance.
  */
 export function logLikelihoodGradient(
   returns: ArrayLike<number>,
   p: GarchParams,
   bc: number,
   scores?: Float64Array[],
+  x?: Exogenous,
 ): { value: number; gradient: number[] } {
   const nu = p.nu;
   const skew = nu !== undefined && p.lambda !== undefined ? skewConstants(nu, p.lambda) : null;
-  const g = new Array<number>(nu === undefined ? 5 : skew ? 7 : 6).fill(0);
+  const g = new Array<number>(x ? 8 : nu === undefined ? 5 : skew ? 7 : 6).fill(0);
+  const delta = p.delta ?? 0;
+  let prevX = x?.backcast ?? 0;
+  let dDelta = 0;
   const c = nu === undefined ? 0 : tConstant(nu);
   const dcNu = nu === undefined ? 0 : 0.5 * digamma((nu + 1) / 2) - 0.5 * digamma(nu / 2) - 0.5 / (nu - 2);
   let total = 0;
@@ -167,13 +208,14 @@ export function logLikelihoodGradient(
   let dGamma = 0;
   let dBeta = 0;
   for (let t = 0; t < returns.length; t += 1) {
-    const s = p.omega + p.alpha * prevE2 + p.gamma * prevNeg + p.beta * prevS;
+    const s = p.omega + p.alpha * prevE2 + p.gamma * prevNeg + p.beta * prevS + delta * prevX;
     if (t === 0) {
       dMu = 0;
       dOmega = 1;
       dAlpha = bc;
       dGamma = 0.5 * bc;
       dBeta = bc;
+      dDelta = prevX;
     } else {
       const negative = prevE < 0 ? 1 : 0;
       dMu = -2 * prevE * (p.alpha + p.gamma * negative) + p.beta * dMu;
@@ -181,6 +223,7 @@ export function logLikelihoodGradient(
       dAlpha = prevE2 + p.beta * dAlpha;
       dGamma = prevNeg + p.beta * dGamma;
       dBeta = prevS + p.beta * dBeta;
+      dDelta = prevX + p.beta * dDelta;
     }
     const e = returns[t] - p.mu;
     const e2 = e * e;
@@ -230,6 +273,12 @@ export function logLikelihoodGradient(
       scores[2][t] = sAlpha;
       scores[3][t] = sGamma;
       scores[4][t] = sBeta;
+    }
+    if (x) {
+      const sDelta = ds * dDelta;
+      g[7] += sDelta;
+      if (scores && scores.length > 7) scores[7][t] = sDelta;
+      prevX = x.values[t];
     }
     prevE = e;
     prevE2 = e2;

@@ -9,7 +9,7 @@ export type LikelihoodGradient = (
   scores?: Float64Array[],
 ) => { value: number; gradient: number[] };
 
-const KEYS = ['mu', 'omega', 'alpha', 'gamma', 'beta', 'nu', 'lambda'] as const;
+const KEYS = ['mu', 'omega', 'alpha', 'gamma', 'beta', 'nu', 'lambda', 'delta'] as const;
 
 /** erfc(x) for x ≥ 0 — Numerical Recipes' Chebyshev fit, relative error < 1.2e-7. */
 function erfc(x: number): number {
@@ -63,6 +63,8 @@ export type FreeParameters = {
   readonly nu: boolean;
   readonly lambda: boolean;
   readonly mu: boolean;
+  /** GARCH-X's δ; absent, false. */
+  readonly delta?: boolean;
 };
 
 /**
@@ -88,7 +90,8 @@ export function robustStandardErrors(
       (k !== 'gamma' || free.gamma) &&
       (k !== 'nu' || free.nu) &&
       (k !== 'lambda' || free.lambda) &&
-      (k !== 'mu' || free.mu),
+      (k !== 'mu' || free.mu) &&
+      (k !== 'delta' || free.delta === true),
   );
   const index = keys.map((k) => KEYS.indexOf(k));
   const m = keys.length;
@@ -118,6 +121,7 @@ export function robustStandardErrors(
   const se: Record<string, number> = { mu: NaN, omega: NaN, alpha: NaN, gamma: NaN, beta: NaN };
   if (params.nu !== undefined) se.nu = NaN;
   if (params.lambda !== undefined) se.lambda = NaN;
+  if (params.delta !== undefined) se.delta = NaN;
   const pv: Record<string, number> = { ...se };
   for (let a = 0; a < m; a += 1) {
     let v = 0;

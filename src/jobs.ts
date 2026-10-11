@@ -1,7 +1,14 @@
 import { egarchLogLikelihood } from './egarch.js';
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
-import { type Distribution, type GarchModel, type GarchParams, logLikelihood, type MeanModel } from './model.js';
+import {
+  type Distribution,
+  exogenousBackcast,
+  type GarchModel,
+  type GarchParams,
+  logLikelihood,
+  type MeanModel,
+} from './model.js';
 import { type FitAt, segments, type Validation, walkForwardValidation } from './validation.js';
 
 export type { FitAt } from './validation.js';
@@ -19,6 +26,8 @@ export type VolatilityForecastRequest = {
   readonly mean?: MeanModel;
   /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
   readonly targetVariance?: boolean;
+  /** GARCH-X: x aligned with the returns (garch and gjr); see `FitOptions.exogenous`. Forecasts hold it at its last value. */
+  readonly exogenous?: ArrayLike<number>;
   readonly horizon: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -70,7 +79,7 @@ export type RivalMode = {
 export function asOfFit(
   request: Pick<
     VolatilityForecastRequest,
-    'returns' | 'model' | 'dist' | 'mean' | 'targetVariance' | 'horizon' | 'rivalsWithin'
+    'returns' | 'model' | 'dist' | 'mean' | 'targetVariance' | 'exogenous' | 'horizon' | 'rivalsWithin'
   >,
 ): AsOfFit {
   const model = request.model ?? 'garch';
@@ -79,6 +88,7 @@ export function asOfFit(
     dist: request.dist,
     mean: request.mean,
     targetVariance: request.targetVariance,
+    exogenous: request.exogenous,
     inference: model !== 'garch',
   });
   const p = fit.inference?.pValues.gamma;
@@ -91,7 +101,7 @@ export function asOfFit(
             .slice(1)
             .filter((m) => m.converged && fit.logLikelihood - m.logLikelihood <= within)
             .map((m) => {
-              const rival = refit(fit, m.params, request.returns);
+              const rival = refit(fit, m.params, request.returns, request.exogenous);
               return {
                 params: m.params,
                 persistence: m.persistence,
@@ -117,9 +127,23 @@ export function asOfFit(
 }
 
 /** The fit as it would be at other parameters: their variance path over the same returns. */
-function refit(fit: GarchFit, params: GarchParams, returns: ArrayLike<number>): GarchFit {
+function refit(
+  fit: GarchFit,
+  params: GarchParams,
+  returns: ArrayLike<number>,
+  exogenous?: ArrayLike<number>,
+): GarchFit {
   const variance = new Float64Array(returns.length);
-  (fit.model === 'egarch' ? egarchLogLikelihood : logLikelihood)(returns, params, fit.backcast, variance);
+  if (fit.model === 'egarch') egarchLogLikelihood(returns, params, fit.backcast, variance);
+  else
+    logLikelihood(
+      returns,
+      params,
+      fit.backcast,
+      variance,
+      undefined,
+      exogenous ? { values: exogenous, backcast: exogenousBackcast(exogenous) } : undefined,
+    );
   return { ...fit, params, conditionalVariance: variance, lastResidual: returns[returns.length - 1] - params.mu };
 }
 
@@ -136,6 +160,7 @@ export function volatilityForecast(request: VolatilityForecastRequest): Volatili
       dist: request.dist,
       mean: request.mean,
       targetVariance: request.targetVariance,
+      exogenous: request.exogenous,
       horizon: request.horizon,
       minTrain: request.minTrain,
       step: request.step,
@@ -154,6 +179,8 @@ export type FitsAtRequest = {
   readonly mean?: MeanModel;
   /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
   readonly targetVariance?: boolean;
+  /** GARCH-X: x aligned with the returns (garch and gjr); see `FitOptions.exogenous`. Forecasts hold it at its last value. */
+  readonly exogenous?: ArrayLike<number>;
 };
 
 /**
@@ -170,6 +197,7 @@ export function fitsAt(request: FitsAtRequest): (FitAt | null)[] {
 export function fitsAtSegment(request: FitsAtRequest): (FitAt | null)[] {
   const model = request.model ?? 'garch';
   const all = Float64Array.from(request.returns);
+  const x = request.exogenous ? Float64Array.from(request.exogenous) : undefined;
   let warm: GarchParams | null = null;
   return request.ends.map((end) => {
     if (!(Number.isInteger(end) && end >= 1 && end < all.length))
@@ -179,6 +207,7 @@ export function fitsAtSegment(request: FitsAtRequest): (FitAt | null)[] {
       dist: request.dist,
       mean: request.mean,
       targetVariance: request.targetVariance,
+      exogenous: x?.subarray(0, end + 1),
       warmStart: warm,
     });
     if (!fit.converged) return null;

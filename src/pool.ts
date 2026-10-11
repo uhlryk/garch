@@ -12,6 +12,7 @@ import type { JobName, JobRequest, JobResult } from './registry.js';
 import { scoreWalkForward, segments, validationWindows, type WalkForwardStep } from './validation.js';
 import {
   assembleWeighted,
+  exogenousFor,
   targets,
   WEIGHTED_MODELS,
   type WeightedForecast,
@@ -223,6 +224,7 @@ export async function volatilityForecastOnPool(
 ): Promise<VolatilityForecast> {
   const model = request.model ?? 'garch';
   const returns = Float64Array.from(request.returns);
+  const x = request.exogenous ? Float64Array.from(request.exogenous) : undefined;
   const windows = validationWindows(returns.length, request);
   const origins = segments(windows.map((w) => w.origin));
   const models = baselineOf(model) === 'garch' ? [model, 'garch' as const] : [model];
@@ -235,6 +237,7 @@ export async function volatilityForecastOnPool(
         dist: request.dist,
         mean: request.mean,
         targetVariance: request.targetVariance,
+        exogenous: x,
         horizon: request.horizon,
         rivalsWithin: request.rivalsWithin,
       },
@@ -249,6 +252,7 @@ export async function volatilityForecastOnPool(
           dist: request.dist,
           mean: request.mean,
           targetVariance: request.targetVariance,
+          exogenous: x,
           horizon: request.horizon,
           origins: o,
         },
@@ -276,6 +280,7 @@ export async function fitsAtOnPool(
   timeoutMs?: number,
 ): Promise<(FitAt | null)[]> {
   const returns = Float64Array.from(request.returns);
+  const x = request.exogenous ? Float64Array.from(request.exogenous) : undefined;
   const tasks = segments(request.ends).map((ends) => ({
     job: 'fitsAtSegment' as const,
     request: {
@@ -285,6 +290,7 @@ export async function fitsAtOnPool(
       dist: request.dist,
       mean: request.mean,
       targetVariance: request.targetVariance,
+      exogenous: x,
     },
     weight: cost(ends) * (request.dist && request.dist !== 'normal' ? 2 : 1),
   }));
@@ -303,6 +309,7 @@ export async function weightedForecastOnPool(
 ): Promise<WeightedForecast> {
   const specs = request.models ?? WEIGHTED_MODELS;
   const returns = Float64Array.from(request.returns);
+  const x = request.exogenous ? Float64Array.from(request.exogenous) : undefined;
   const origins = segments(validationWindows(returns.length, request).map((w) => w.origin));
   const tasks = [
     ...specs.map((spec) => ({
@@ -313,6 +320,7 @@ export async function weightedForecastOnPool(
         horizon: request.horizon,
         mean: request.mean,
         targetVariance: request.targetVariance,
+        exogenous: x,
       },
       weight: Infinity,
     })),
@@ -325,6 +333,7 @@ export async function weightedForecastOnPool(
           dist: spec.dist,
           mean: request.mean,
           targetVariance: targets(spec, request.targetVariance),
+          exogenous: exogenousFor(spec, x),
           horizon: request.horizon,
           origins: o,
         },

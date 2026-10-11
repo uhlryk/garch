@@ -47,6 +47,8 @@ export {
   type Distribution,
   digamma,
   downShare,
+  type Exogenous,
+  exogenousBackcast,
   type GarchModel,
   type GarchParams,
   logGamma,

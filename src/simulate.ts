@@ -31,6 +31,12 @@ export type SimulationRequest = {
    * simulation draws them. ν and λ are then not used for the draws.
    */
   readonly innovations?: { readonly bootstrap: ArrayLike<number> };
+  /**
+   * GARCH-X (params with δ): the x that enter the variances, x_T for step 1's
+   * and x_{T+k} for step k + 1's — `steps` values, or one held throughout.
+   * Without a state to start from, the paths start at (ω + δ·mean(x))/(1 − P).
+   */
+  readonly exogenous?: number | ArrayLike<number>;
 };
 
 export type Simulation = {
@@ -152,6 +158,21 @@ export function simulate(request: SimulationRequest): Simulation {
       if (!Number.isFinite(resample[i])) throw new RangeError(`bootstrap residual ${i} is not a finite number`);
   }
   const egarch = model === 'egarch';
+  const delta = p.delta ?? 0;
+  if (p.delta !== undefined && (egarch || !(p.delta >= 0)))
+    throw new RangeError(`δ must be ≥ 0, and for garch or gjr only, got ${p.delta}`);
+  if ((p.delta !== undefined) !== (request.exogenous !== undefined))
+    throw new RangeError('params with δ and the exogenous values go together: give both or neither');
+  const given = request.exogenous;
+  const xs = typeof given === 'number' ? null : given;
+  if (xs && xs.length < steps) throw new RangeError(`${steps} exogenous values are needed, got ${xs.length}`);
+  const xAt = (k: number) => (given === undefined ? 0 : xs ? xs[k] : (given as number));
+  let xMean = 0;
+  for (let k = 0; k < steps; k += 1) {
+    const x = xAt(k);
+    if (!(Number.isFinite(x) && x >= 0)) throw new RangeError(`exogenous value ${k} must be a finite number ≥ 0`);
+    xMean += x / steps;
+  }
   const gamma = model === 'garch' ? 0 : p.gamma;
   if (!egarch && !(persistence({ ...p, gamma }) < 1) && !known)
     throw new RangeError('a non-stationary model has no unconditional variance to start from');
@@ -166,8 +187,8 @@ export function simulate(request: SimulationRequest): Simulation {
     } else first = Math.exp(p.omega / (1 - p.beta));
   } else if (known) {
     const e = request.lastResidual!;
-    first = p.omega + p.alpha * e * e + gamma * (e < 0 ? e * e : 0) + p.beta * request.lastVariance!;
-  } else first = p.omega / (1 - persistence({ ...p, gamma }));
+    first = p.omega + p.alpha * e * e + gamma * (e < 0 ? e * e : 0) + p.beta * request.lastVariance! + delta * xAt(0);
+  } else first = (p.omega + delta * xMean) / (1 - persistence({ ...p, gamma }));
 
   const draw = resample ? bootstrap(resample, request.seed) : innovations(p.nu, p.lambda, request.seed);
   const returns: Float64Array[] = [];
@@ -182,6 +203,7 @@ export function simulate(request: SimulationRequest): Simulation {
       r[t] = p.mu + Math.sqrt(s) * z;
       const e = r[t] - p.mu;
       s = nextVariance(model, p, s, e, z);
+      if (delta && t + 1 < steps) s += delta * xAt(t + 1);
     }
     returns.push(r);
     variance.push(v);

@@ -34,6 +34,17 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   correlation h steps ahead), `portfolioVariance`, `portfolioTailRisk` (closed
   form or simulated), and `fitDccInWorkers` on `/node` and `/web` with stage 1
   on the pool. `runInWorker` takes a `fitGarch` job.
+- GARCH-X, `exogenous: x`, for garch and gjr: δ·x_{t−1} in the variance
+  equation, δ ≥ 0 fitted with an analytic gradient and robust inference
+  (`params.delta`, `GarchFit.lastExogenous`, `exogenousBackcast`).
+  `forecastVariance` takes a future x path (x held at its last value without),
+  `simulate` and `extendFit` take x, and the walk-forward, `varBacktest`,
+  `fitsAt`, the pool and the weighted forecast thread it through.
+
+### Changed
+
+- `logLikelihood` and `logLikelihoodGradient` take an optional exogenous
+  series; with one, the gradient has eight entries (δ's last).
 
 ## [0.2.0] - 2026-10-11
 

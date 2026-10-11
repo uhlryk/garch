@@ -76,6 +76,20 @@ on short series and faster in a walk-forward.
 - **Not for EGARCH** (`GarchInputError`): its unconditional log-variance is not ln V (Jensen's inequality and the shock term's mean move it), so there is no exact target. Its parameter space already centres ω on ln var(r).
 - **Against a reference.** `arch` 8 has no variance targeting, so `scripts/arch-fixtures/generate.py` writes `arch`'s likelihood out in numpy (checked against `arch`'s own at its optimum), ties ω the same way and maximises it with scipy from several starts. On SPY and IOVA, garch and gjr, the fit lands on scipy's optimum to 1e-4 with an equal or higher likelihood.
 
+### GARCH-X: an exogenous variance driver (`exogenous`)
+
+Daily returns are a noisy view of volatility; an implied variance (VIX²) or an
+intraday realised measure carries more. GARCH-X adds such a series x ≥ 0,
+aligned with the returns, to the variance equation:
+
+    s_t = ω + α·e²_{t−1} + γ·e²_{t−1}·[e_{t−1} < 0] + β·s_{t−1} + δ·x_{t−1},   δ ≥ 0
+
+- **Fitting.** δ is a parameter like the others, with its analytic gradient (d s_t/dδ = x_{t−1} + β·d s_{t−1}/dδ), a robust standard error and p-value, and one more in `parameterCount`. The recursion starts from x_{−1} = the 0.94-weighted mean of the first 75 x (`exogenousBackcast`), as the variance starts from `arch`'s backcast. garch and gjr, every distribution and mean, and variance targeting (ω = V·(1 − P) − δ·mean(x), so the unconditional variance stays V). EGARCH refuses it.
+- **Forecasts need x ahead.** s_{T+1} takes x_T, which the fit keeps (`lastExogenous`). Beyond one step x is not known: `forecastVariance(fit, h, xPath)` takes x_{T+1} … x_{T+h−1} (a forecast of x, or a scenario); without one, x is held at x_T. `simulate` takes the x of every step (`exogenous`), and `extendFit(fit, r, x)` the new x with the new returns.
+- **In a walk-forward** each origin's fit sees x up to the origin and its forecast holds x at x_origin, so nothing from after the origin leaks in. `exogenous` goes through `walkForwardValidation`, `volatilityForecast`, `fitsAt`, `varBacktest`, the pool and the weighted forecast (whose egarch models are fitted without it). Whether x earns its keep is `compareValidations` of the runs with and without it.
+- **Against a reference.** `arch` takes exogenous regressors in the mean only, so `scripts/arch-fixtures/generate.py` writes the GARCH-X likelihood out in numpy and maximises it with scipy, on SPY with x the trailing five-day mean of r². The fit lands on scipy's optimum to 1e-5 in every parameter, garch and gjr, with an equal likelihood.
+- **Not Realized GARCH.** Hansen, Huang and Shek's model also has a measurement equation for x and a joint likelihood; it is not here (issue #26).
+
 ### Student-t innovations (`dist: 't'`)
 
     l_t = ln Γ((ν+1)/2) − ln Γ(ν/2) − ½ ln(π(ν−2)) − ½ ln s_t − (ν+1)/2 · ln(1 + e²_t / (s_t(ν−2)))
@@ -321,6 +335,8 @@ fit.aic; fit.bic;              // as arch reports them; a ν held on a bound is 
 fitGarch(returns, { model: 'egarch', inference: true });          // γ < 0: leverage; normal innovations only
 fitGarch(returns, { model: 'gjr', mean: 'zero' });                // μ held at 0
 fitGarch(returns, { model: 'gjr', targetVariance: true });        // ω = var(r)·(1 − persistence), → varianceTarget
+const gx = fitGarch(returns, { model: 'gjr', exogenous: vix2 });  // GARCH-X: + δ·x_{t−1}, → params.delta
+forecastVariance(gx, 20, vix2Path);                               // x_{T+1} … x_{T+19}; held at x_T without
 fitGarch(returns, { model: 'gjr', dist: 'skewt', inference: true }); // → params.nu, params.lambda; λ < 0: a fatter loss tail
 fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t on the fine-grained history
 // → params.nu, nuBound: 'lower' | 'upper' | null
@@ -383,9 +399,9 @@ from this section.
 
 | export | what it does |
 |---|---|
-| `fitGarch(returns, options?)` | Maximum likelihood fit: `model` (`'garch'` \| `'gjr'` \| `'egarch'`), `dist` (`'normal'` \| `'t'` \| `'skewt'`), `mean` (`'constant'` \| `'zero'`), `targetVariance`, `nuMin`, `warmStart`, `inference`. Returns `GarchFit`: params, persistence, log-likelihood, `aic`, `bic`, variance path, `modes`, `nuBound`, `inference`, `extendedBy`, `varianceTarget`. |
-| `extendFit(fit, newReturns)` | The fit carried over new returns at its parameters, without re-estimating: variance path, `lastResidual`, log-likelihood and criteria over the whole series; `extendedBy` counts the returns added. |
-| `forecastVariance(fit, horizon)` | s_{T+1} … s_{T+h}, analytic (EGARCH's exact). |
+| `fitGarch(returns, options?)` | Maximum likelihood fit: `model` (`'garch'` \| `'gjr'` \| `'egarch'`), `dist` (`'normal'` \| `'t'` \| `'skewt'`), `mean` (`'constant'` \| `'zero'`), `targetVariance`, `exogenous`, `nuMin`, `warmStart`, `inference`. Returns `GarchFit`: params, persistence, log-likelihood, `aic`, `bic`, variance path, `modes`, `nuBound`, `inference`, `extendedBy`, `varianceTarget`, `lastExogenous`. |
+| `extendFit(fit, newReturns, newExogenous?)` | The fit carried over new returns at its parameters, without re-estimating: variance path, `lastResidual`, log-likelihood and criteria over the whole series; `extendedBy` counts the returns added. |
+| `forecastVariance(fit, horizon, exogenous?)` | s_{T+1} … s_{T+h}, analytic (EGARCH's exact); GARCH-X takes x_{T+1} … x_{T+h−1} or holds x_T. |
 | `egarchForecast(params, lastVariance, lastResidual, horizon)` | EGARCH's closed-form expected variance path, from a state. |
 | `persistence(params)` | α + κγ + β for garch/gjr. |
 | `downShare(params)` | κ = E[z²·1{z < 0}] of the params' innovations: ½, or the skewed t's. |
@@ -456,10 +472,11 @@ from this section.
 
 | export | what it does |
 |---|---|
-| `logLikelihood(returns, params, backcast, variance, contributions?)` | The garch/gjr log-likelihood, filling the variance path. |
-| `logLikelihoodGradient(returns, params, backcast, scores?)` | It and its analytic gradient (and per-observation scores). |
+| `logLikelihood(returns, params, backcast, variance, contributions?, exogenous?)` | The garch/gjr log-likelihood, filling the variance path; GARCH-X with `{ values, backcast }`. |
+| `logLikelihoodGradient(returns, params, backcast, scores?, exogenous?)` | It and its analytic gradient (and per-observation scores); δ's is the eighth entry. |
 | `egarchLogLikelihood(…)`, `egarchLogLikelihoodGradient(…)` | The same for EGARCH, from the log of the backcast. |
 | `backcast(returns, mean?)` | `arch`'s pre-sample variance. |
+| `exogenousBackcast(x)` | GARCH-X's x_{−1}: the 0.94-weighted mean of the first 75 x. |
 | `EGARCH_ABS_MEAN` | E\|z\| = √(2/π). |
 
 ### `@krzysztofsztompka/garch/node` and `@krzysztofsztompka/garch/web`
@@ -496,6 +513,7 @@ the tests also run it in-process.
 - **Diebold–Mariano.** Statistic and p-value against a numpy hand computation to 1e-12 / 1e-9, for h = 1, 3, 5 and both kernels; IOVA's garch-vs-naive test against the same computation on `arch`'s walk-forward to 1 %; the per-origin terms average to the validation's loss; two validations compared on the origins both scored.
 - **Extending a fit.** For garch, gjr (normal, t, skewed t, zero mean) the extended fit's variance path and log-likelihood equal `logLikelihood` over the whole series to the bit, EGARCH's to 1e-13; extending in steps equals extending at once; the forecast starts from the new last state; on SPY it reaches `arch`'s `fix()` variance and one-step forecast to 1e-10.
 - **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal, t and skewed t) and EGARCH, and their innovations have unit variance.
+- **GARCH-X.** The gradient against finite differences, δ included; δ recovered and significant on a simulated path with a persistent driver; SPY's garch-X and gjr-X against scipy's optimum to 1e-5; the forecast with x held and along a path; `extendFit` with new x equal to the whole-series likelihood to the bit; the walk-forward on the pool equal to in-process; variance targeting with x; refusals.
 - **Variance targeting.** On SPY and IOVA, garch and gjr against scipy's optimum of the same likelihood with ω tied, to 1e-4 and an equal or higher likelihood; ω = V·(1 − persistence) to the bit; one parameter fewer in the count and none in the covariance; t, skewed-t and zero-mean fits keep the unconditional variance at V; EGARCH refused; carried through the pool's walk-forward and weighted forecast as in-process.
 - **A zero mean and the criteria.** garch, gjr and egarch with `mean: 'zero'` against `arch`'s `mean='Zero'`; AIC and BIC against `arch`'s; the zero mean carried through the pool.
 - **Refusals.** Fractional counts are refused; a pool timeout names the jobs it cut short.

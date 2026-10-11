@@ -186,6 +186,8 @@ export type VarBacktestOptions = {
   readonly mean?: MeanModel;
   /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
   readonly targetVariance?: boolean;
+  /** GARCH-X: x aligned with the returns (garch and gjr); see `FitOptions.exogenous`. Forecasts hold it at its last value. */
+  readonly exogenous?: ArrayLike<number>;
   readonly level: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -206,8 +208,14 @@ export type VarBacktest = CoverageTest & {
 };
 
 /** The standardised residuals over a train window of the fit made on it. */
-function residualsOf(train: Float64Array, model: GarchModel, p: GarchParams, mean?: MeanModel): Float64Array {
-  const s = variancePath(train, model, p, mean);
+function residualsOf(
+  train: Float64Array,
+  model: GarchModel,
+  p: GarchParams,
+  mean?: MeanModel,
+  exogenous?: ArrayLike<number>,
+): Float64Array {
+  const s = variancePath(train, model, p, mean, exogenous);
   const z = new Float64Array(train.length);
   for (let t = 0; t < z.length; t += 1) z[t] = (train[t] - p.mu) / Math.sqrt(s[t]);
   return z;
@@ -224,6 +232,7 @@ function residualsOf(train: Float64Array, model: GarchModel, p: GarchParams, mea
 export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOptions): VarBacktest {
   const model = options.model ?? 'garch';
   const all = Float64Array.from(returns);
+  const x = options.exogenous ? Float64Array.from(options.exogenous) : undefined;
   const windows = validationWindows(all.length, { horizon: 1, minTrain: options.minTrain, step: options.step });
   const steps = segments(windows.map((w) => w.origin)).flatMap((origins) =>
     walkForwardSteps({
@@ -232,6 +241,7 @@ export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOpti
       dist: options.dist,
       mean: options.mean,
       targetVariance: options.targetVariance,
+      exogenous: options.exogenous,
       horizon: 1,
       origins,
     }),
@@ -246,7 +256,7 @@ export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOpti
         ? filteredTailRisk({
             mean: p.mu,
             variance: s.forecast,
-            residuals: residualsOf(all.subarray(0, origin + 1), model, p, options.mean),
+            residuals: residualsOf(all.subarray(0, origin + 1), model, p, options.mean, x?.subarray(0, origin + 1)),
             level: options.level,
           })
         : tailRisk({ mean: p.mu, variance: s.forecast, nu: p.nu, lambda: p.lambda, level: options.level });

@@ -47,11 +47,17 @@ export type WeightedForecastRequest = {
   readonly mean?: MeanModel;
   /** Variance targeting for every garch and gjr model; an egarch one is fitted with ω free. */
   readonly targetVariance?: boolean;
+  /** GARCH-X's x for every garch and gjr model; an egarch one is fitted without it. */
+  readonly exogenous?: ArrayLike<number>;
 };
 
 /** Whether a model of the set is fitted with variance targeting: garch and gjr when asked, never egarch. */
 export const targets = (spec: ModelSpec, targetVariance?: boolean) =>
   targetVariance === true && spec.model !== 'egarch';
+
+/** The exogenous series a model of the set is fitted with: garch and gjr take it, egarch not. */
+export const exogenousFor = (spec: ModelSpec, exogenous?: ArrayLike<number>) =>
+  spec.model === 'egarch' ? undefined : exogenous;
 
 export type WeightedModel = {
   readonly spec: ModelSpec;
@@ -196,8 +202,16 @@ export function weightedAsOf(request: {
   horizon: number;
   mean?: MeanModel;
   targetVariance?: boolean;
+  exogenous?: ArrayLike<number>;
 }): AsOfFit | null {
-  return safeAsOf(request.returns, request.spec, request.horizon, request.mean, request.targetVariance);
+  return safeAsOf(
+    request.returns,
+    request.spec,
+    request.horizon,
+    request.mean,
+    request.targetVariance,
+    request.exogenous,
+  );
 }
 
 function safeAsOf(
@@ -206,6 +220,7 @@ function safeAsOf(
   horizon: number,
   mean?: MeanModel,
   targetVariance?: boolean,
+  exogenous?: ArrayLike<number>,
 ): AsOfFit | null {
   try {
     return asOfFit({
@@ -214,6 +229,7 @@ function safeAsOf(
       dist: spec.dist,
       mean,
       targetVariance: targets(spec, targetVariance),
+      exogenous: exogenousFor(spec, exogenous),
       horizon,
     });
   } catch {
@@ -234,6 +250,7 @@ export function weightedForecast(request: WeightedForecastRequest): WeightedFore
         dist: spec.dist,
         mean: request.mean,
         targetVariance: targets(spec, request.targetVariance),
+        exogenous: exogenousFor(spec, request.exogenous),
         horizon: request.horizon,
         origins: o,
       }),
@@ -243,7 +260,9 @@ export function weightedForecast(request: WeightedForecastRequest): WeightedFore
     returns,
     request,
     specs,
-    specs.map((spec) => safeAsOf(returns, spec, request.horizon, request.mean, request.targetVariance)),
+    specs.map((spec) =>
+      safeAsOf(returns, spec, request.horizon, request.mean, request.targetVariance, request.exogenous),
+    ),
     steps,
   );
 }

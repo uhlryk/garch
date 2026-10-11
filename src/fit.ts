@@ -4,6 +4,8 @@ import {
   backcast,
   type Distribution,
   downShare,
+  type Exogenous,
+  exogenousBackcast,
   type GarchModel,
   type GarchParams,
   logLikelihood,
@@ -34,6 +36,11 @@ export type FitOptions = {
    * unconditional variance is the sample's. One parameter fewer.
    */
   readonly targetVariance?: boolean;
+  /**
+   * GARCH-X (garch and gjr): x_t ≥ 0 aligned with the returns — an implied
+   * variance, a realised measure — entering s_{t+1} as δ·x_t, δ ≥ 0 fitted.
+   */
+  readonly exogenous?: ArrayLike<number>;
 };
 
 export type Inference = {
@@ -85,6 +92,8 @@ export type GarchFit = {
    * when ω was estimated.
    */
   readonly varianceTarget: number | null;
+  /** GARCH-X: x_T, the last exogenous value — what s_{T+1} takes. null without one. */
+  readonly lastExogenous: number | null;
 };
 
 /** One local maximum of the likelihood, reached from at least one start. */
@@ -149,9 +158,15 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   const mean = zeroMean ? 0 : sampleMean;
   const bc = backcast(returns, mean);
   const sig2 = new Float64Array(n);
+  const exo = options.exogenous ? exogenousOf(options.exogenous, n) : undefined;
+  const xMean = exo ? exo.mean : 0;
+  // δ's scale: δ·mean(x) is a share of the variance
+  const deltaScale = exo ? variance / xMean : 1;
+  const plain: LikelihoodGradient = (r, p, b, scores) => logLikelihoodGradient(r, p, b, scores, exo);
   const target = options.targetVariance ? varianceAbout(returns, mean) : null;
-  const likelihood = target === null ? logLikelihoodGradient : targetedLikelihood(target);
-  const tie = (p: GarchParams): GarchParams => (target === null ? p : { ...p, omega: target * (1 - persistence(p)) });
+  const likelihood = target === null ? plain : targetedLikelihood(target, plain, xMean);
+  const tie = (p: GarchParams): GarchParams =>
+    target === null ? p : { ...p, omega: target * (1 - persistence(p)) - (p.delta ?? 0) * xMean };
   // under targeting x1 (ω) leaves the space: the optimiser sees x without it
   const widen = (x: readonly number[]): number[] => (target === null ? [...x] : [x[0], 0, ...x.slice(1)]);
   const narrow = (x: readonly number[]): number[] => (target === null ? [...x] : [x[0], ...x.slice(2)]);
@@ -161,6 +176,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     const freeNu = studentT && heldNu === null;
     const nuAt = asymmetric ? 5 : 4;
     const lambdaAt = nuAt + (freeNu ? 1 : 0);
+    const deltaAt = lambdaAt + (skewed ? 1 : 0);
     const toParams = (x: readonly number[]): GarchParams => tie(fullParams(widen(x)));
     const fullParams = (x: readonly number[]): GarchParams => {
       const omega = Math.exp(x[1]) * variance;
@@ -168,10 +184,12 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       const beta = P * logistic(x[3]);
       const q = P - beta;
       const gamma = asymmetric ? 2 * q * Math.tanh(x[4]) : 0;
-      const p = { mu: x[0], omega, alpha: q - gamma / 2, gamma, beta };
-      if (!studentT) return p;
-      const nu = freeNu ? nuMin + nuSpan * logistic(x[nuAt]) : heldNu!;
-      return skewed ? { ...p, nu, lambda: Math.tanh(x[lambdaAt]) } : { ...p, nu };
+      let p: GarchParams = { mu: x[0], omega, alpha: q - gamma / 2, gamma, beta };
+      if (studentT) {
+        const nu = freeNu ? nuMin + nuSpan * logistic(x[nuAt]) : heldNu!;
+        p = skewed ? { ...p, nu, lambda: Math.tanh(x[lambdaAt]) } : { ...p, nu };
+      }
+      return exo ? { ...p, delta: Math.exp(x[deltaAt]) * deltaScale } : p;
     };
     const toX = (p: GarchParams): number[] => narrow(fullX(p));
     const fullX = (p: GarchParams): number[] => {
@@ -183,6 +201,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       }
       if (freeNu) x.push(logit(inside(((p.nu ?? START_NU) - nuMin) / nuSpan)));
       if (skewed) x.push(Math.atanh(Math.min(Math.max(p.lambda ?? 0, -1 + 1e-9), 1 - 1e-9)));
+      if (exo) x.push(Math.log(Math.max(p.delta ?? 0, 1e-9 * deltaScale) / deltaScale));
       return x;
     };
     // negative mean log-likelihood and its gradient in x (chain rule through toParams)
@@ -215,6 +234,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
         gx.push(g[5] * nuSpan * sn * (1 - sn));
       }
       if (skewed) gx.push(g[6] * (1 - p.lambda! * p.lambda!));
+      if (exo) gx.push(g[7] * p.delta!);
       return { value: -value / n, gradient: narrow(gx).map((v) => -v / n) };
     };
     return { toParams, toX, objective };
@@ -225,28 +245,32 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   for (const level of START_PERSISTENCE) {
     let best: { value: number; p: GarchParams } | null = null;
     for (const alpha of START_ALPHA)
-      for (const gamma of asymmetric ? START_GAMMA : [0]) {
-        const beta = level - alpha - gamma / 2;
-        if (beta <= 0) continue;
-        const p = tie({
-          mu: mean,
-          omega: variance * (1 - level),
-          alpha,
-          gamma,
-          beta,
-          ...(studentT ? { nu: START_NU } : {}),
-          ...(skewed ? { lambda: 0 } : {}),
-        });
-        const value = logLikelihood(returns, p, bc, sig2);
-        if (Number.isFinite(value) && (!best || value > best.value)) best = { value, p };
-      }
+      for (const gamma of asymmetric ? START_GAMMA : [0])
+        for (const share of exo ? START_X_SHARE : [0]) {
+          const beta = level - alpha - gamma / 2;
+          if (beta <= 0) continue;
+          const p = tie({
+            mu: mean,
+            omega: variance * (1 - level) * (1 - share),
+            alpha,
+            gamma,
+            beta,
+            ...(studentT ? { nu: START_NU } : {}),
+            ...(skewed ? { lambda: 0 } : {}),
+            ...(exo ? { delta: (variance * (1 - level) * share) / xMean } : {}),
+          });
+          if (!(p.omega > 0)) continue;
+          const value = logLikelihood(returns, p, bc, sig2, undefined, exo);
+          if (Number.isFinite(value) && (!best || value > best.value)) best = { value, p };
+        }
     if (best) starts.push({ x: toX(best.p), warm: false });
   }
   if (options.warmStart) {
     const w = options.warmStart;
     const nu = studentT ? Math.min(Math.max(w.nu ?? START_NU, nuMin), NU_MAX) : undefined;
     const lambda = skewed ? Math.min(Math.max(w.lambda ?? 0, -0.99), 0.99) : undefined;
-    const warm = tie({ ...(asymmetric ? w : { ...w, gamma: 0 }), nu, lambda, mu: zeroMean ? 0 : w.mu });
+    const delta = exo ? Math.max(w.delta ?? 0, (variance * START_X_SHARE[0] * 0.1) / xMean) : undefined;
+    const warm = tie({ ...(asymmetric ? w : { ...w, gamma: 0 }), nu, lambda, delta, mu: zeroMean ? 0 : w.mu });
     if (
       warm.omega > 0 &&
       warm.alpha >= 0 &&
@@ -273,7 +297,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   }
   const best = modes[0];
   const params = best.params;
-  const ll = logLikelihood(returns, params, bc, sig2);
+  const ll = logLikelihood(returns, params, bc, sig2, undefined, exo);
   return {
     model,
     mean: zeroMean ? 'zero' : 'constant',
@@ -288,7 +312,8 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
         (zeroMean ? 0 : 1) +
         (asymmetric ? 1 : 0) +
         (studentT && !nuBound ? 1 : 0) +
-        (skewed ? 1 : 0),
+        (skewed ? 1 : 0) +
+        (exo ? 1 : 0),
       n,
     ),
     conditionalVariance: sig2,
@@ -299,7 +324,14 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
           returns,
           params,
           bc,
-          { omega: target === null, gamma: asymmetric, nu: studentT && !nuBound, lambda: skewed, mu: !zeroMean },
+          {
+            omega: target === null,
+            gamma: asymmetric,
+            nu: studentT && !nuBound,
+            lambda: skewed,
+            mu: !zeroMean,
+            delta: exo !== undefined,
+          },
           likelihood,
         )
       : null,
@@ -307,7 +339,25 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     modes: reportModes(modes, n, persistence),
     extendedBy: 0,
     varianceTarget: target,
+    lastExogenous: exo ? exo.values[n - 1] : null,
   };
+}
+
+/** The x shares of the start's variance level the grid tries: δ·mean(x) = share·ω/(1 − share). */
+const START_X_SHARE = [0.1, 0.5];
+
+/** x checked against the returns, with its backcast and mean. */
+function exogenousOf(values: ArrayLike<number>, n: number): Exogenous & { mean: number } {
+  if (values.length !== n)
+    throw new GarchInputError(`the exogenous series has ${values.length} values, the returns ${n}`);
+  let sum = 0;
+  for (let i = 0; i < n; i += 1) {
+    if (!(Number.isFinite(values[i]) && values[i] >= 0))
+      throw new GarchInputError(`exogenous value ${i} must be a finite number ≥ 0, got ${values[i]}`);
+    sum += values[i];
+  }
+  if (!(sum > 0)) throw new GarchInputError('the exogenous series is all zeros');
+  return { values, backcast: exogenousBackcast(values), mean: sum / n };
 }
 
 /** mean((r − m)²): the variance targeted, about the sample mean or about 0. */
@@ -322,11 +372,12 @@ function varianceAbout(returns: ArrayLike<number>, m: number): number {
  * into the others' (dω/dα = dω/dβ = −V, dω/dγ = −Vκ, and through κ into ν
  * and λ for a skewed GJR), per observation too. ω itself is no parameter.
  */
-function targetedLikelihood(V: number): LikelihoodGradient {
+function targetedLikelihood(V: number, likelihood: LikelihoodGradient, xMean: number): LikelihoodGradient {
   return (returns, params, bc, scores) => {
-    const p = { ...params, omega: V * (1 - persistence(params)) };
-    const out = logLikelihoodGradient(returns, p, bc, scores);
-    const dOmega = [0, 0, -V, -V * downShare(p), -V, 0, 0];
+    const p = { ...params, omega: V * (1 - persistence(params)) - (params.delta ?? 0) * xMean };
+    const out = likelihood(returns, p, bc, scores);
+    // GARCH-X: ω = V·(1 − P) − δ·mean(x), so the unconditional variance stays V
+    const dOmega = [0, 0, -V, -V * downShare(p), -V, 0, 0, -xMean];
     if (p.gamma && p.lambda !== undefined && p.nu !== undefined) {
       // κ(ν, λ) by central differences: smooth, and cheap next to the recursion
       const h = 1e-6;
@@ -352,12 +403,21 @@ export function variancePath(
   model: GarchModel,
   params: GarchParams,
   meanModel: MeanModel = 'constant',
+  exogenous?: ArrayLike<number>,
 ): Float64Array {
   const { mean } = moments(returns);
   const bc = backcast(returns, meanModel === 'zero' ? 0 : mean);
   const variance = new Float64Array(returns.length);
   if (model === 'egarch') egarchLogLikelihood(returns, params, Math.log(bc), variance);
-  else logLikelihood(returns, params, bc, variance);
+  else
+    logLikelihood(
+      returns,
+      params,
+      bc,
+      variance,
+      undefined,
+      exogenous ? { values: exogenous, backcast: exogenousBackcast(exogenous) } : undefined,
+    );
   return variance;
 }
 
@@ -394,6 +454,8 @@ const START_EGARCH_GAMMA = [0, -0.05, -0.15];
  * start; every optimum reached is a mode. `persistence` is β.
  */
 function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
+  if (options.exogenous)
+    throw new GarchInputError('EGARCH takes no exogenous variance driver here: GARCH-X is for garch and gjr');
   if (options.targetVariance)
     throw new GarchInputError(
       'EGARCH takes no variance targeting: its unconditional log-variance is not ln var(r), so ω has no exact target',
@@ -468,6 +530,7 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
     modes: reportModes(modes, n, egarchPersistence),
     extendedBy: 0,
     varianceTarget: null,
+    lastExogenous: null,
   };
 }
 
