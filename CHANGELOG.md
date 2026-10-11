@@ -29,6 +29,11 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   space, the parameter count and the robust covariance; `GarchFit.varianceTarget`
   reports the variance targeted. Threaded through the walk-forward,
   `varBacktest`, `fitsAt`, the pool and the weighted forecast. EGARCH refuses it.
+- DCC-GARCH for several assets: `fitDcc` (stage 1 any model per asset, stage 2
+  DCC(1,1) with correlation targeting), `dccForecast` (covariance and
+  correlation h steps ahead), `portfolioVariance`, `portfolioTailRisk` (closed
+  form or simulated), and `fitDccInWorkers` on `/node` and `/web` with stage 1
+  on the pool. `runInWorker` takes a `fitGarch` job.
 
 ## [0.2.0] - 2026-10-11
 

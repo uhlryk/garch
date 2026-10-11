@@ -3,8 +3,11 @@
  * `./node` on Web Workers, so a walk-forward does not block the page. The same
  * calls and the same answer to the bit as in-process.
  */
+
+import type { DccFit, DccOptions } from './dcc.js';
 import type { FitAt, VolatilityForecast, VolatilityForecastRequest } from './jobs.js';
 import {
+  fitDccOnPool,
   fitsAtOnPool,
   type PoolWorker,
   type RunOptions,
@@ -83,4 +86,13 @@ export function weightedForecastInWorkers(
   options: RunOptions = {},
 ): Promise<WeightedForecast> {
   return weightedForecastOnPool(options.pool ?? defaultPool(), request, options.timeoutMs);
+}
+
+/** `fitDcc` with stage 1 — one fit per asset — across the pool; the in-process answer. */
+export function fitDccInWorkers(
+  series: readonly ArrayLike<number>[],
+  options: DccOptions = {},
+  runOptions: RunOptions = {},
+): Promise<DccFit> {
+  return fitDccOnPool(runOptions.pool ?? defaultPool(), series, options, runOptions.timeoutMs);
 }

@@ -100,7 +100,7 @@ function gammaVariate(shape: number, normal: () => number, uniform: () => number
 }
 
 /** Unit-variance innovations: normal, Student-t with ν scaled by √((ν − 2)/ν), or Hansen's skewed t. */
-function innovations(nu: number | undefined, lambda: number | undefined, seed: number): () => number {
+export function innovations(nu: number | undefined, lambda: number | undefined, seed: number): () => number {
   const uniform = uniforms(seed);
   const normal = normals(uniform);
   if (nu === undefined) return normal;
@@ -109,6 +109,13 @@ function innovations(nu: number | undefined, lambda: number | undefined, seed: n
   if (lambda === undefined) return standardT;
   const { a, b } = skewConstants(nu, lambda);
   return () => skewDraw(lambda, a, b, uniform(), standardT());
+}
+
+/** s_{t+1} from s_t, the shock e_t and z_t = e_t/√s_t: the model's own recursion (γ ignored for garch). */
+export function nextVariance(model: GarchModel, p: GarchParams, s: number, e: number, z: number): number {
+  if (model === 'egarch')
+    return Math.exp(p.omega + p.alpha * (Math.abs(z) - EGARCH_ABS_MEAN) + p.gamma * z + p.beta * Math.log(s));
+  return p.omega + p.alpha * e * e + (model === 'garch' ? 0 : p.gamma) * (e < 0 ? e * e : 0) + p.beta * s;
 }
 
 /** Draws with replacement from `z`, uniformly over its indices. */
@@ -174,9 +181,7 @@ export function simulate(request: SimulationRequest): Simulation {
       v[t] = s;
       r[t] = p.mu + Math.sqrt(s) * z;
       const e = r[t] - p.mu;
-      s = egarch
-        ? Math.exp(p.omega + p.alpha * (Math.abs(z) - EGARCH_ABS_MEAN) + p.gamma * z + p.beta * Math.log(s))
-        : p.omega + p.alpha * e * e + gamma * (e < 0 ? e * e : 0) + p.beta * s;
+      s = nextVariance(model, p, s, e, z);
     }
     returns.push(r);
     variance.push(v);

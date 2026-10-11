@@ -1,5 +1,17 @@
 export { type DieboldMariano, type DieboldMarianoOptions, dieboldMariano } from './comparison.js';
 export {
+  type DccAssetSpec,
+  type DccFit,
+  type DccForecast,
+  type DccOptions,
+  dccForecast,
+  fitDcc,
+  type PortfolioTailRisk,
+  type PortfolioTailRiskRequest,
+  portfolioTailRisk,
+  portfolioVariance,
+} from './dcc.js';
+export {
   archLm,
   chiSquareSurvival,
   ljungBox,

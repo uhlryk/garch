@@ -1,3 +1,4 @@
+import { type FitOptions, fitGarch } from './fit.js';
 import { asOfFit, fitsAt, fitsAtSegment, volatilityForecast } from './jobs.js';
 import { walkForwardForecasts, walkForwardSteps } from './validation.js';
 import { weightedAsOf, weightedForecast } from './weighted.js';
@@ -12,6 +13,9 @@ export const JOBS = {
   fitsAtSegment,
   weightedForecast,
   weightedAsOf,
+  /** One series' fit — a DCC's stage 1 runs one per asset. */
+  fitGarch: (request: { readonly returns: ArrayLike<number>; readonly options?: FitOptions }) =>
+    fitGarch(request.returns, request.options),
 } as const;
 export type JobName = keyof typeof JOBS;
 export type JobRequest<J extends JobName> = Parameters<(typeof JOBS)[J]>[0];

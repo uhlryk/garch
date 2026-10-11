@@ -3,7 +3,7 @@
 GARCH(1,1), GJR-GARCH(1,1) and EGARCH(1,1,1) by maximum likelihood — normal,
 Student-t or skewed-t innovations, a constant or zero mean — with variance
 forecasts, walk-forward validation, simulation, value at risk with backtests,
-and residual diagnostics. Pure TypeScript, **no runtime dependencies**,
+and residual diagnostics; DCC-GARCH for the correlations of several assets. Pure TypeScript, **no runtime dependencies**,
 CommonJS and ES modules, worker pools for Node and the browser. Fits match
 Python's [`arch`](https://github.com/bashtage/arch) where the likelihood has
 one optimum, and find a higher one where it has several.
@@ -189,6 +189,28 @@ trailing variance.
 - **Model against model.** `compareValidations(a, b, overlap)` tests two validations' terms on the origins both scored — the weighted forecast's models against one another, say.
 - A skipped origin (a fit that did not converge) leaves a gap the HAC lags do not see; with few skips the effect is small.
 
+## Several assets: DCC-GARCH
+
+`fitDcc(series, { models })` fits Engle's (2002) dynamic conditional
+correlation in two stages. Stage 1 fits each asset's own model with `fitGarch`
+(any model, distribution and mean; one specification for all or one per
+asset) and standardises its residuals. Stage 2 fits DCC(1,1) on them with
+correlation targeting:
+
+    Q_t = (1 − a − b)·Q̄ + a·z_{t−1}z_{t−1}ᵀ + b·Q_{t−1},   Q̄ = (1/T)·Σ z_t z_tᵀ
+    R_t = diag(Q_t)^{−½}·Q_t·diag(Q_t)^{−½},   H_t = D_t·R_t·D_t
+
+with (a, b) maximising the correlation part of the Gaussian likelihood, a, b ≥
+0 and a + b < 1 by construction (BFGS from four starts). The fit keeps every
+asset's `GarchFit`, a, b, Q̄, R_t for every day, and both log-likelihoods: stage
+2's and the total.
+
+- **Forecasts.** `dccForecast(fit, h)` gives H_{T+1} … H_{T+h}, R and each asset's variance. R_{T+1} is exact; later steps use Engle and Sheppard's approximation, as R's `rmgarch` does: R_{T+k} = (1 − (a+b)^{k−1})·R̄ + (a+b)^{k−1}·R_{T+1}.
+- **Portfolios.** `portfolioVariance(H, w)` is wᵀHw. `portfolioTailRisk({ dcc, weights, horizon, level })` is closed form for one day with every asset normal, and simulated otherwise (`paths`, `seed`): each day draws every asset's own unit-variance innovations, correlates them through the Cholesky factor of R_t and runs every recursion forward. Under t or skewed-t assets the correlated draws keep the correlation but not exactly each marginal.
+- **The pool.** `fitDccInWorkers(series, options)` (`/node`, `/web`) runs stage 1 one asset per worker and stage 2 in the caller, for the in-process answer.
+- **Against a reference.** `arch` has no DCC, so `scripts/arch-fixtures/generate.py` writes stage 2 out in numpy over `arch`'s stage-1 residuals and maximises it with scipy, on IOVA and SPY over IOVA's history (aligned by position from their common last date). Stage 2 on those residuals lands on scipy's (a, b) to 1e-4 with an equal or higher likelihood; the whole fit, forecast covariances and portfolio VaR agree to 1 %.
+- **Limits.** DCC(1,1) only, the series aligned by the caller (equal lengths, no gaps), and no standard errors for a and b: a two-stage estimate's covariance needs the correction for stage 1's estimation error, which is not computed. Stage 2 is Gaussian quasi-likelihood whatever the assets' innovations. The per-day correlations take T·N² numbers; meant for a handful of assets, not hundreds.
+
 ## The optimiser, and why it has six starts
 
 BFGS with an analytic gradient runs in an unconstrained space where every point
@@ -290,8 +312,8 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## Usage
 
 ```ts
-import { archLm, compareValidations, dieboldMariano, egarchForecast, extendFit, filteredTailRisk, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
-import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
+import { archLm, compareValidations, dccForecast, dieboldMariano, egarchForecast, extendFit, filteredTailRisk, fitDcc, fitGarch, forecastVariance, ljungBox, portfolioTailRisk, portfolioVariance, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { fitDccInWorkers, fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
 fit.modes;                     // every optimum reached, best first
@@ -332,6 +354,13 @@ await fitsAtInWorkers({ returns, ends: [999, 1499] });
 await weightedForecastInWorkers({ returns, horizon: 20 });
 // → forecast, conditionalVariance, models[i].{spec, asOf, validation, weight}, validation, walkForward[j].{origin, weights, fits}
 await runInWorker('asOfFit', { returns, horizon: 20 });        // any one job on one worker
+
+// several assets: DCC-GARCH; one array of returns per asset, aligned by day
+const dcc = fitDcc([spy, tlt, gld], { models: { model: 'gjr', dist: 't' } });   // → assets, a, b, correlation
+const ahead = dccForecast(dcc, 10);                       // → covariance[k], correlation[k]: H_{T+k}, R_{T+k}
+portfolioVariance(ahead.covariance[0], [0.6, 0.3, 0.1]);
+portfolioTailRisk({ dcc, weights: [0.6, 0.3, 0.1], horizon: 10, level: 0.01, paths: 50_000, seed: 1 });
+await fitDccInWorkers([spy, tlt, gld], { models: { model: 'gjr' } });   // stage 1 across the pool
 ```
 
 `fitGarch` throws `GarchInputError` on input it cannot fit. The pool's calls
@@ -404,6 +433,15 @@ from this section.
 | `ljungBox(series, lags, modelDf?)`, `archLm(series, lags)` | Serial correlation and ARCH left in the residuals. |
 | `quantizedUntil(returns, options?)` | Where coarse-grid history ends. |
 
+**Several assets**
+
+| export | what it does |
+|---|---|
+| `fitDcc(series, options?)` | DCC-GARCH: each asset by `fitGarch` (`models`: one spec or one per asset), then DCC(1,1) (a, b) with correlation targeting. Returns `DccFit`: `assets`, `a`, `b`, `correlationTarget`, `correlation` per day, both log-likelihoods. |
+| `dccForecast(fit, horizon)` | H_{T+k}, R_{T+k} and each asset's variance, k = 1 … h. |
+| `portfolioVariance(covariance, weights)` | wᵀHw. |
+| `portfolioTailRisk(request)` | Portfolio VaR and ES over `horizon` days: closed form (one day, normal assets) or simulated paths. |
+
 **Distributions and special functions**
 
 | export | what it does |
@@ -433,6 +471,7 @@ Both export the same names; `/node` runs worker threads, `/web` Web Workers.
 | `volatilityForecastInWorkers(request, options?)` | `volatilityForecast` across the pool. |
 | `fitsAtInWorkers(request, options?)` | `fitsAt` across the pool. |
 | `weightedForecastInWorkers(request, options?)` | `weightedForecast` across the pool. |
+| `fitDccInWorkers(series, options?, runOptions?)` | `fitDcc` with stage 1 across the pool. |
 | `runInWorker(job, request, options?)` | Any one job on one worker. |
 | `GarchPool` (`/node`), `GarchWebPool` (`/web`) | A pool of `size` workers; `close()` terminates them. |
 | `defaultPool()` | The shared pool the calls use when `options.pool` is absent. |
@@ -453,6 +492,7 @@ the tests also run it in-process.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
+- **DCC-GARCH.** a, b and the correlation target recovered from a simulated three-asset path; stage 2 on `arch`'s IOVA and SPY residuals at scipy's optimum to 1e-4, the likelihood equal at scipy's (a, b) to 1e-8; the whole fit, forecast covariances, portfolio variance and VaR against the fixture to 1 %; R_{T+1} exact and the forecast reverting to R̄; the simulated one-day portfolio VaR and ES against the closed form, a seed reproducing them; stage 1 on the pool equal to in-process.
 - **Diebold–Mariano.** Statistic and p-value against a numpy hand computation to 1e-12 / 1e-9, for h = 1, 3, 5 and both kernels; IOVA's garch-vs-naive test against the same computation on `arch`'s walk-forward to 1 %; the per-origin terms average to the validation's loss; two validations compared on the origins both scored.
 - **Extending a fit.** For garch, gjr (normal, t, skewed t, zero mean) the extended fit's variance path and log-likelihood equal `logLikelihood` over the whole series to the bit, EGARCH's to 1e-13; extending in steps equals extending at once; the forecast starts from the new last state; on SPY it reaches `arch`'s `fix()` variance and one-step forecast to 1e-10.
 - **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal, t and skewed t) and EGARCH, and their innovations have unit variance.

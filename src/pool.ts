@@ -4,6 +4,8 @@
  * walk-forward into segments across it. `./node` gives it worker threads,
  * `./web` Web Workers; the answer is the in-process one on either.
  */
+import { assetSpec, type DccFit, type DccOptions, dccFromFits } from './dcc.js';
+import type { GarchFit } from './fit.js';
 import type { AsOfFit, FitAt, VolatilityForecast, VolatilityForecastRequest } from './jobs.js';
 import { baselineOf } from './jobs.js';
 import type { JobName, JobRequest, JobResult } from './registry.js';
@@ -335,4 +337,20 @@ export async function weightedForecastOnPool(
   const segmentSteps = out.slice(specs.length) as (WalkForwardStep | null)[][];
   const steps = specs.map((_, k) => segmentSteps.slice(k * origins.length, (k + 1) * origins.length).flat());
   return assembleWeighted(returns, request, specs, asOf, steps);
+}
+
+/** `fitDcc` with stage 1 across the pool, one asset per task, and stage 2 here — the in-process answer. */
+export async function fitDccOnPool(
+  pool: WorkerPool,
+  series: readonly ArrayLike<number>[],
+  options: DccOptions,
+  timeoutMs?: number,
+): Promise<DccFit> {
+  const tasks = series.map((s, i) => ({
+    job: 'fitGarch' as const,
+    request: { returns: Float64Array.from(s), options: assetSpec(options, i, series.length) },
+    weight: s.length,
+  }));
+  const fits = await pool.run<GarchFit>(tasks, timeoutMs);
+  return dccFromFits(series, fits);
 }

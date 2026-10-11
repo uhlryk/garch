@@ -232,6 +232,93 @@ def targeting_answers(r: np.ndarray) -> dict:
     return out
 
 
+DCC_HORIZON = 5
+DCC_WEIGHTS = (0.3, 0.7)
+
+
+def dcc_correlation(z: np.ndarray, a: float, b: float) -> tuple[float, np.ndarray, list]:
+    """DCC(1,1) with correlation targeting over z (T×N): the correlation part of the Gaussian
+    log-likelihood, Q_T and every R_t. Q_1 = Q̄ = zᵀz/T."""
+    T, N = z.shape
+    qbar = z.T @ z / T
+    q = qbar.copy()
+    total = 0.0
+    rs = []
+    for t in range(T):
+        if t > 0:
+            q = (1 - a - b) * qbar + a * np.outer(z[t - 1], z[t - 1]) + b * q
+        d = 1 / np.sqrt(np.diag(q))
+        r = q * np.outer(d, d)
+        rs.append(r)
+        sign, logdet = np.linalg.slogdet(r)
+        if sign <= 0:
+            return -np.inf, q, rs
+        total += -0.5 * (logdet + z[t] @ np.linalg.solve(r, z[t]) - z[t] @ z[t])
+    return total, q, rs
+
+
+def dcc_answers(series: dict) -> dict:
+    """arch has no DCC: stage 1 is arch's GARCH(1,1) on each series, stage 2 written out here and
+    maximised by scipy (a, b ≥ 0, a + b < 1). IOVA and SPY over IOVA's whole history, aligned by
+    position from their common last date. The forecast is rmgarch's: R_{T+1} exact, then
+    R_{T+k} = (1 − (a+b)^{k−1})·R̄ + (a+b)^{k−1}·R_{T+1}."""
+    rs = [returns_of(series[name]['closes']) for name in ('iova', 'spy')]
+    n = min(len(r) for r in rs)
+    rs = [r[-n:] for r in rs]
+    stage1 = [fit(r, 'GARCH', 0) for r in rs]
+    z = np.column_stack([np.asarray(res.std_resid) for res in stage1])
+
+    def negative(x):
+        value, _, _ = dcc_correlation(z, x[0], x[1])
+        return -value if np.isfinite(value) else 1e300
+
+    best = None
+    for x0 in ((0.01, 0.97), (0.03, 0.95), (0.05, 0.9)):
+        run = optimize.minimize(
+            negative, x0, method='SLSQP', bounds=[(0, 1), (0, 1)],
+            constraints=[{'type': 'ineq', 'fun': lambda x: 1 - 1e-6 - x[0] - x[1]}],
+            options={'ftol': 1e-14, 'maxiter': 1000},
+        )
+        if best is None or run.fun < best.fun:
+            best = run
+    a, b = (float(v) for v in best.x)
+    loglik, q_last, r_path = dcc_correlation(z, a, b)
+    qbar = z.T @ z / len(z)
+    q1 = (1 - a - b) * qbar + a * np.outer(z[-1], z[-1]) + b * q_last
+    normalise = lambda m: m / np.sqrt(np.outer(np.diag(m), np.diag(m)))
+    r1, rbar = normalise(q1), normalise(qbar)
+    variance = np.column_stack(
+        [res.forecast(horizon=DCC_HORIZON, reindex=False).variance.values[-1] for res in stage1]
+    )
+    correlation, covariance = [], []
+    for k in range(DCC_HORIZON):
+        r = r1 if k == 0 else (1 - (a + b) ** k) * rbar + (a + b) ** k * r1
+        sd = np.sqrt(variance[k])
+        correlation.append(r.tolist())
+        covariance.append((r * np.outer(sd, sd)).tolist())
+    w = np.asarray(DCC_WEIGHTS)
+    mean = float(w @ [res.params['mu'] for res in stage1])
+    pv = float(w @ np.asarray(covariance[0]) @ w)
+    level = 0.01
+    return {
+        'returns': n,
+        'stage1': [
+            {k: float(res.params[key]) for k, key in (('mu', 'mu'), ('omega', 'omega'), ('alpha', 'alpha[1]'), ('beta', 'beta[1]'))}
+            for res in stage1
+        ],
+        'a': a,
+        'b': b,
+        'correlation_loglik': float(loglik),
+        'loglik': float(loglik + sum(res.loglikelihood for res in stage1)),
+        'last_correlation': r_path[-1].tolist(),
+        'correlation': correlation,
+        'covariance': covariance,
+        'weights': list(DCC_WEIGHTS),
+        'portfolio_variance': pv,
+        'var_1pct': float(-(mean + np.sqrt(pv) * stats.norm.ppf(level))),
+    }
+
+
 FHS_HORIZON = 10
 FHS_SIMULATIONS = 20_000
 
@@ -393,6 +480,7 @@ def main() -> None:
         egarch['series'][name] = egarch_answers(r)
     garch['skewt_distribution'] = skewt_distribution()
     garch['diebold_mariano'] = diebold_mariano_cases()
+    garch['dcc'] = dcc_answers(garch['series'])
     garch['recorded'] = today
     garch['source'] = (
         f'daily closes as recorded; {versions}; '
