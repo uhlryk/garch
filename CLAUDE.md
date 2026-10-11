@@ -30,3 +30,8 @@ the `main` ruleset (no deletion, no force push, `test (20|22|24)` required for
 everyone else, Dependabot PRs included); never force-push. Releases: move
 `Unreleased` in CHANGELOG under the new version, bump `package.json`, push tag
 `v<version>` — `release.yml` publishes via npm trusted publishing (no token).
+
+Workflow actions are pinned by full SHA with the version in a comment
+(`actions/checkout@<sha> # v4.4.0`); a new `uses:` follows that form. Dependabot
+PRs (weekly: actions, grouped npm devDependencies) need CI green on 20/22/24;
+check the bumped release notes (and an action's SHA against its tag) before merging.

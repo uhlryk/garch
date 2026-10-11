@@ -554,6 +554,15 @@ which fails when an export has no API reference row.
 `main` is protected by a ruleset: no deletion, no force push, and a change
 from anyone but the owner lands only with CI green on Node 20, 22 and 24.
 
+Every action in the workflows is pinned to a full commit SHA (the version in a
+comment), so a moved tag cannot change what runs with publish rights; CI runs
+with `contents: read` only, and the release job alone gets `contents: write`
+and `id-token: write`. Dependabot (`.github/dependabot.yml`) opens weekly PRs
+for the actions and, grouped, the npm devDependencies; Dependabot alerts and
+security updates are on. A Dependabot PR is read like any other — the
+changelog of the bumped action or tool, and for an action the new SHA against
+its release tag — and merged only with CI green on all three Node versions.
+
 ## Releasing
 
 Move `CHANGELOG.md`'s `Unreleased` entries under the new version, set
