@@ -184,6 +184,8 @@ export type VarBacktestOptions = {
   readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
+  /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
+  readonly targetVariance?: boolean;
   readonly level: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -224,7 +226,15 @@ export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOpti
   const all = Float64Array.from(returns);
   const windows = validationWindows(all.length, { horizon: 1, minTrain: options.minTrain, step: options.step });
   const steps = segments(windows.map((w) => w.origin)).flatMap((origins) =>
-    walkForwardSteps({ returns: all, model, dist: options.dist, mean: options.mean, horizon: 1, origins }),
+    walkForwardSteps({
+      returns: all,
+      model,
+      dist: options.dist,
+      mean: options.mean,
+      targetVariance: options.targetVariance,
+      horizon: 1,
+      origins,
+    }),
   );
   const forecasts: { origin: number; valueAtRisk: number; realized: number }[] = [];
   steps.forEach((s, i) => {

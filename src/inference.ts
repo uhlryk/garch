@@ -55,8 +55,10 @@ export function invert(matrix: readonly (readonly number[])[]): number[][] | nul
   return a.map((row) => row.slice(n));
 }
 
-/** Which parameters were fitted: γ (asymmetric models), ν (t or skewed t, interior), λ (skewed t), μ (a constant mean). */
+/** Which parameters were fitted: ω (unless targeted), γ (asymmetric models), ν (t or skewed t, interior), λ (skewed t), μ (a constant mean). */
 export type FreeParameters = {
+  /** False under variance targeting: ω is tied, not estimated. */
+  readonly omega: boolean;
   readonly gamma: boolean;
   readonly nu: boolean;
   readonly lambda: boolean;
@@ -82,6 +84,7 @@ export function robustStandardErrors(
   const n = returns.length;
   const keys = KEYS.filter(
     (k) =>
+      (k !== 'omega' || free.omega) &&
       (k !== 'gamma' || free.gamma) &&
       (k !== 'nu' || free.nu) &&
       (k !== 'lambda' || free.lambda) &&

@@ -17,6 +17,8 @@ export type VolatilityForecastRequest = {
   readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
+  /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
+  readonly targetVariance?: boolean;
   readonly horizon: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -31,6 +33,8 @@ export type VolatilityForecast = {
   readonly params: GarchParams;
   readonly persistence: number;
   readonly logLikelihood: number;
+  /** See `GarchFit.varianceTarget`: null unless ω was targeted. */
+  readonly varianceTarget: number | null;
   /** See `GarchFit`: −2·ln L + 2k and −2·ln L + k·ln n. */
   readonly aic: number;
   readonly bic: number;
@@ -64,13 +68,17 @@ export type RivalMode = {
 
 /** Fit on everything and forecast `horizon` steps — the as-of half of `volatilityForecast`. */
 export function asOfFit(
-  request: Pick<VolatilityForecastRequest, 'returns' | 'model' | 'dist' | 'mean' | 'horizon' | 'rivalsWithin'>,
+  request: Pick<
+    VolatilityForecastRequest,
+    'returns' | 'model' | 'dist' | 'mean' | 'targetVariance' | 'horizon' | 'rivalsWithin'
+  >,
 ): AsOfFit {
   const model = request.model ?? 'garch';
   const fit = fitGarch(request.returns, {
     model,
     dist: request.dist,
     mean: request.mean,
+    targetVariance: request.targetVariance,
     inference: model !== 'garch',
   });
   const p = fit.inference?.pValues.gamma;
@@ -98,6 +106,7 @@ export function asOfFit(
     params: fit.params,
     persistence: fit.persistence,
     logLikelihood: fit.logLikelihood,
+    varianceTarget: fit.varianceTarget,
     aic: fit.aic,
     bic: fit.bic,
     conditionalVariance: Array.from(fit.conditionalVariance),
@@ -126,6 +135,7 @@ export function volatilityForecast(request: VolatilityForecastRequest): Volatili
       model,
       dist: request.dist,
       mean: request.mean,
+      targetVariance: request.targetVariance,
       horizon: request.horizon,
       minTrain: request.minTrain,
       step: request.step,
@@ -142,6 +152,8 @@ export type FitsAtRequest = {
   readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
+  /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
+  readonly targetVariance?: boolean;
 };
 
 /**
@@ -162,7 +174,13 @@ export function fitsAtSegment(request: FitsAtRequest): (FitAt | null)[] {
   return request.ends.map((end) => {
     if (!(Number.isInteger(end) && end >= 1 && end < all.length))
       throw new RangeError(`train end ${end} is outside the ${all.length} returns`);
-    const fit = fitGarch(all.subarray(0, end + 1), { model, dist: request.dist, mean: request.mean, warmStart: warm });
+    const fit = fitGarch(all.subarray(0, end + 1), {
+      model,
+      dist: request.dist,
+      mean: request.mean,
+      targetVariance: request.targetVariance,
+      warmStart: warm,
+    });
     if (!fit.converged) return null;
     warm = fit.params;
     return {

@@ -23,7 +23,7 @@ import arch
 import numpy as np
 from arch import arch_model
 from arch.univariate import SkewStudent
-from scipy import stats
+from scipy import optimize, stats
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'test' / 'fixtures'
@@ -164,6 +164,72 @@ def extend_answers(r: np.ndarray) -> dict:
         'forecast_1': float(fixed.forecast(horizon=1, reindex=False).variance.values[-1][0]),
         'loglik': float(fixed.loglikelihood),
     }
+
+
+def gjr_loglik(r: np.ndarray, mu: float, omega: float, alpha: float, gamma: float, beta: float) -> float:
+    """arch's GJR-GARCH(1,1) normal log-likelihood, written out: the recursion from arch's
+    backcast (0.94-weighted mean of the first 75 squared residuals about the sample mean)."""
+    e = r - mu
+    tau = min(75, len(r))
+    w = 0.94 ** np.arange(tau)
+    bc = float(w @ (r[:tau] - r.mean()) ** 2 / w.sum())
+    s = np.empty(len(r))
+    prev_e2, prev_neg, prev_s = bc, 0.5 * bc, bc
+    for t in range(len(r)):
+        s[t] = omega + alpha * prev_e2 + gamma * prev_neg + beta * prev_s
+        prev_e2 = e[t] ** 2
+        prev_neg = prev_e2 if e[t] < 0 else 0.0
+        prev_s = s[t]
+    return float(-0.5 * np.sum(np.log(2 * np.pi) + np.log(s) + e**2 / s))
+
+
+def targeting_answers(r: np.ndarray) -> dict:
+    """arch 8 has no variance targeting: the same likelihood (checked against arch's own at its
+    optimum) maximised by scipy with ω = var(r)·(1 − α − γ/2 − β), var about the sample mean,
+    from several starts."""
+    target = float(np.var(r))
+    out = {'variance': target}
+    for model, o in (('garch', 0), ('gjr', 1)):
+        res = fit(r, 'GARCH', o)
+        p = res.params
+        free = gjr_loglik(r, p['mu'], p['omega'], p['alpha[1]'], p['gamma[1]'] if o else 0.0, p['beta[1]'])
+        assert abs(free - res.loglikelihood) < 1e-6, (model, free, res.loglikelihood)
+
+        def unpack(x):
+            mu, alpha, beta = x[0], x[1], x[2]
+            gamma = x[3] if o else 0.0
+            return mu, target * (1 - alpha - gamma / 2 - beta), alpha, gamma, beta
+
+        def negative(x):
+            with np.errstate(invalid='ignore', divide='ignore'):  # a trial step off the valid region
+                value = -gjr_loglik(r, *unpack(x))
+            return value if np.isfinite(value) else 1e300
+
+        constraints = [
+            {'type': 'ineq', 'fun': lambda x: 1 - 1e-6 - (x[1] + (x[3] / 2 if o else 0) + x[2])},
+        ]
+        if o:
+            constraints.append({'type': 'ineq', 'fun': lambda x: x[1] + x[3]})
+        bounds = [(None, None), (0, 1), (0, 1)] + ([(-1, 2)] if o else [])
+        best = None
+        for alpha, beta in ((p['alpha[1]'], p['beta[1]']), (0.05, 0.9), (0.1, 0.8), (0.02, 0.97)):
+            x0 = [p['mu'], alpha, beta] + ([max(p['gamma[1]'], 0.0)] if o else [])
+            run = optimize.minimize(
+                negative, x0, method='SLSQP', bounds=bounds, constraints=constraints,
+                options={'ftol': 1e-14, 'maxiter': 1000},
+            )
+            if best is None or run.fun < best.fun:
+                best = run
+        mu, omega, alpha, gamma, beta = unpack(best.x)
+        out[model] = {
+            'mu': float(mu),
+            'omega': float(omega),
+            'alpha': float(alpha),
+            'gamma': float(gamma) if o else None,
+            'beta': float(beta),
+            'loglik': float(-best.fun),
+        }
+    return out
 
 
 FHS_HORIZON = 10
@@ -318,6 +384,7 @@ def main() -> None:
             'garch': {**garch_answers(r, 0), **walk_forward(r)},
             'gjr': garch_answers(r, 1),
             'zero_mean': zero_mean_answers(r),
+            'targeting': targeting_answers(r),
         }
         if name == 'spy':  # IOVA's quantized history makes a t fit degenerate (see quantizedUntil)
             s['arch']['skewt'] = skewt_answers(r)

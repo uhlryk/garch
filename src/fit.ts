@@ -1,8 +1,9 @@
 import { egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch.js';
-import { robustStandardErrors } from './inference.js';
+import { type LikelihoodGradient, robustStandardErrors } from './inference.js';
 import {
   backcast,
   type Distribution,
+  downShare,
   type GarchModel,
   type GarchParams,
   logLikelihood,
@@ -11,6 +12,7 @@ import {
   persistence,
 } from './model.js';
 import { bfgs, type Objective } from './optimize.js';
+import { skewDownShare } from './skewt.js';
 
 export class GarchInputError extends Error {}
 
@@ -26,6 +28,12 @@ export type FitOptions = {
   readonly warmStart?: GarchParams | null;
   /** Also compute robust (Bollerslev–Wooldridge) standard errors and two-sided p-values. */
   readonly inference?: boolean;
+  /**
+   * Variance targeting (garch and gjr): ω is not estimated but tied to the
+   * sample variance, ω = var(r)·(1 − persistence), so the model's
+   * unconditional variance is the sample's. One parameter fewer.
+   */
+  readonly targetVariance?: boolean;
 };
 
 export type Inference = {
@@ -40,7 +48,7 @@ export type GarchFit = {
   readonly params: GarchParams;
   readonly persistence: number;
   readonly logLikelihood: number;
-  /** The free parameters the criteria count: μ (constant mean), ω, α, β, γ (gjr, egarch), ν (t, unless held on a bound). */
+  /** The free parameters the criteria count: μ (constant mean), ω (unless targeted), α, β, γ (gjr, egarch), ν (t, unless held on a bound), λ (skewed t). */
   readonly parameterCount: number;
   /** −2·ln L + 2k, as `arch` reports it. */
   readonly aic: number;
@@ -71,6 +79,12 @@ export type GarchFit = {
    * log-likelihood and the criteria cover the whole series.
    */
   readonly extendedBy: number;
+  /**
+   * Under variance targeting, the unconditional variance ω was tied to: the
+   * returns' variance about their sample mean (about 0 for a zero mean). null
+   * when ω was estimated.
+   */
+  readonly varianceTarget: number | null;
 };
 
 /** One local maximum of the likelihood, reached from at least one start. */
@@ -135,13 +149,20 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   const mean = zeroMean ? 0 : sampleMean;
   const bc = backcast(returns, mean);
   const sig2 = new Float64Array(n);
+  const target = options.targetVariance ? varianceAbout(returns, mean) : null;
+  const likelihood = target === null ? logLikelihoodGradient : targetedLikelihood(target);
+  const tie = (p: GarchParams): GarchParams => (target === null ? p : { ...p, omega: target * (1 - persistence(p)) });
+  // under targeting x1 (ω) leaves the space: the optimiser sees x without it
+  const widen = (x: readonly number[]): number[] => (target === null ? [...x] : [x[0], 0, ...x.slice(1)]);
+  const narrow = (x: readonly number[]): number[] => (target === null ? [...x] : [x[0], ...x.slice(2)]);
 
   // The unconstrained space; `heldNu` removes ν from it (a fit held on its bound).
   const spaceOf = (heldNu: number | null) => {
     const freeNu = studentT && heldNu === null;
     const nuAt = asymmetric ? 5 : 4;
     const lambdaAt = nuAt + (freeNu ? 1 : 0);
-    const toParams = (x: readonly number[]): GarchParams => {
+    const toParams = (x: readonly number[]): GarchParams => tie(fullParams(widen(x)));
+    const fullParams = (x: readonly number[]): GarchParams => {
       const omega = Math.exp(x[1]) * variance;
       const P = logistic(x[2]);
       const beta = P * logistic(x[3]);
@@ -152,7 +173,8 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       const nu = freeNu ? nuMin + nuSpan * logistic(x[nuAt]) : heldNu!;
       return skewed ? { ...p, nu, lambda: Math.tanh(x[lambdaAt]) } : { ...p, nu };
     };
-    const toX = (p: GarchParams): number[] => {
+    const toX = (p: GarchParams): number[] => narrow(fullX(p));
+    const fullX = (p: GarchParams): number[] => {
       const P = inside(spacePersistence(p));
       const x = [p.mu, Math.log(p.omega / variance), logit(P), logit(inside(p.beta / P))];
       if (asymmetric) {
@@ -164,10 +186,12 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       return x;
     };
     // negative mean log-likelihood and its gradient in x (chain rule through toParams)
-    const objective = (x: readonly number[]) => {
-      const p = toParams(x);
-      const { value, gradient: g } = logLikelihoodGradient(returns, p, bc);
-      if (!Number.isFinite(value)) return { value: Infinity, gradient: x.map(() => NaN) };
+    const objective = (free: readonly number[]) => {
+      const p = toParams(free);
+      if (!(p.omega > 0)) return { value: Infinity, gradient: free.map(() => NaN) };
+      const x = widen(free);
+      const { value, gradient: g } = likelihood(returns, p, bc);
+      if (!Number.isFinite(value)) return { value: Infinity, gradient: free.map(() => NaN) };
       const P = logistic(x[2]);
       const s3 = logistic(x[3]);
       const dP2 = P * (1 - P);
@@ -191,7 +215,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
         gx.push(g[5] * nuSpan * sn * (1 - sn));
       }
       if (skewed) gx.push(g[6] * (1 - p.lambda! * p.lambda!));
-      return { value: -value / n, gradient: gx.map((v) => -v / n) };
+      return { value: -value / n, gradient: narrow(gx).map((v) => -v / n) };
     };
     return { toParams, toX, objective };
   };
@@ -204,7 +228,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       for (const gamma of asymmetric ? START_GAMMA : [0]) {
         const beta = level - alpha - gamma / 2;
         if (beta <= 0) continue;
-        const p = {
+        const p = tie({
           mu: mean,
           omega: variance * (1 - level),
           alpha,
@@ -212,7 +236,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
           beta,
           ...(studentT ? { nu: START_NU } : {}),
           ...(skewed ? { lambda: 0 } : {}),
-        };
+        });
         const value = logLikelihood(returns, p, bc, sig2);
         if (Number.isFinite(value) && (!best || value > best.value)) best = { value, p };
       }
@@ -222,7 +246,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     const w = options.warmStart;
     const nu = studentT ? Math.min(Math.max(w.nu ?? START_NU, nuMin), NU_MAX) : undefined;
     const lambda = skewed ? Math.min(Math.max(w.lambda ?? 0, -0.99), 0.99) : undefined;
-    const warm = { ...(asymmetric ? w : { ...w, gamma: 0 }), nu, lambda, mu: zeroMean ? 0 : w.mu };
+    const warm = tie({ ...(asymmetric ? w : { ...w, gamma: 0 }), nu, lambda, mu: zeroMean ? 0 : w.mu });
     if (
       warm.omega > 0 &&
       warm.alpha >= 0 &&
@@ -259,23 +283,62 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
     logLikelihood: ll,
     ...informationCriteria(
       ll,
-      3 + (zeroMean ? 0 : 1) + (asymmetric ? 1 : 0) + (studentT && !nuBound ? 1 : 0) + (skewed ? 1 : 0),
+      2 +
+        (target === null ? 1 : 0) +
+        (zeroMean ? 0 : 1) +
+        (asymmetric ? 1 : 0) +
+        (studentT && !nuBound ? 1 : 0) +
+        (skewed ? 1 : 0),
       n,
     ),
     conditionalVariance: sig2,
     lastResidual: returns[n - 1] - params.mu,
     backcast: bc,
     inference: options.inference
-      ? robustStandardErrors(returns, params, bc, {
-          gamma: asymmetric,
-          nu: studentT && !nuBound,
-          lambda: skewed,
-          mu: !zeroMean,
-        })
+      ? robustStandardErrors(
+          returns,
+          params,
+          bc,
+          { omega: target === null, gamma: asymmetric, nu: studentT && !nuBound, lambda: skewed, mu: !zeroMean },
+          likelihood,
+        )
       : null,
     nuBound,
     modes: reportModes(modes, n, persistence),
     extendedBy: 0,
+    varianceTarget: target,
+  };
+}
+
+/** mean((r − m)²): the variance targeted, about the sample mean or about 0. */
+function varianceAbout(returns: ArrayLike<number>, m: number): number {
+  let sum = 0;
+  for (let i = 0; i < returns.length; i += 1) sum += (returns[i] - m) ** 2;
+  return sum / returns.length;
+}
+
+/**
+ * The likelihood with ω tied to V·(1 − α − κγ − β): ω's own score is carried
+ * into the others' (dω/dα = dω/dβ = −V, dω/dγ = −Vκ, and through κ into ν
+ * and λ for a skewed GJR), per observation too. ω itself is no parameter.
+ */
+function targetedLikelihood(V: number): LikelihoodGradient {
+  return (returns, params, bc, scores) => {
+    const p = { ...params, omega: V * (1 - persistence(params)) };
+    const out = logLikelihoodGradient(returns, p, bc, scores);
+    const dOmega = [0, 0, -V, -V * downShare(p), -V, 0, 0];
+    if (p.gamma && p.lambda !== undefined && p.nu !== undefined) {
+      // κ(ν, λ) by central differences: smooth, and cheap next to the recursion
+      const h = 1e-6;
+      dOmega[5] = (-V * p.gamma * (skewDownShare(p.nu + h, p.lambda) - skewDownShare(p.nu - h, p.lambda))) / (2 * h);
+      dOmega[6] = (-V * p.gamma * (skewDownShare(p.nu, p.lambda + h) - skewDownShare(p.nu, p.lambda - h))) / (2 * h);
+    }
+    const g = out.gradient;
+    for (let i = 2; i < g.length; i += 1) g[i] += dOmega[i] * g[1];
+    if (scores)
+      for (let i = 2; i < g.length && i < scores.length; i += 1)
+        if (dOmega[i]) for (let t = 0; t < returns.length; t += 1) scores[i][t] += dOmega[i] * scores[1][t];
+    return out;
   };
 }
 
@@ -331,6 +394,10 @@ const START_EGARCH_GAMMA = [0, -0.05, -0.15];
  * start; every optimum reached is a mode. `persistence` is β.
  */
 function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
+  if (options.targetVariance)
+    throw new GarchInputError(
+      'EGARCH takes no variance targeting: its unconditional log-variance is not ln var(r), so ω has no exact target',
+    );
   if (options.dist === 't' || options.dist === 'skewt')
     throw new GarchInputError(
       'EGARCH takes normal innovations only: under (skewed) Student-t the expected variance two steps ahead is infinite',
@@ -393,13 +460,14 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
           returns,
           params,
           lnBc,
-          { gamma: true, nu: false, lambda: false, mu: !zeroMean },
+          { omega: true, gamma: true, nu: false, lambda: false, mu: !zeroMean },
           egarchLogLikelihoodGradient,
         )
       : null,
     nuBound: null,
     modes: reportModes(modes, n, egarchPersistence),
     extendedBy: 0,
+    varianceTarget: null,
   };
 }
 

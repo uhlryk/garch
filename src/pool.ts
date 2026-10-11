@@ -8,7 +8,13 @@ import type { AsOfFit, FitAt, VolatilityForecast, VolatilityForecastRequest } fr
 import { baselineOf } from './jobs.js';
 import type { JobName, JobRequest, JobResult } from './registry.js';
 import { scoreWalkForward, segments, validationWindows, type WalkForwardStep } from './validation.js';
-import { assembleWeighted, WEIGHTED_MODELS, type WeightedForecast, type WeightedForecastRequest } from './weighted.js';
+import {
+  assembleWeighted,
+  targets,
+  WEIGHTED_MODELS,
+  type WeightedForecast,
+  type WeightedForecastRequest,
+} from './weighted.js';
 import type { Answer } from './worker-core.js';
 
 /** The job was refused on its input (too little history, a bad number) — the caller's to word. */
@@ -226,6 +232,7 @@ export async function volatilityForecastOnPool(
         model,
         dist: request.dist,
         mean: request.mean,
+        targetVariance: request.targetVariance,
         horizon: request.horizon,
         rivalsWithin: request.rivalsWithin,
       },
@@ -234,7 +241,15 @@ export async function volatilityForecastOnPool(
     ...models.flatMap((m) =>
       origins.map((o) => ({
         job: 'walkForwardForecasts' as const,
-        request: { returns, model: m, dist: request.dist, mean: request.mean, horizon: request.horizon, origins: o },
+        request: {
+          returns,
+          model: m,
+          dist: request.dist,
+          mean: request.mean,
+          targetVariance: request.targetVariance,
+          horizon: request.horizon,
+          origins: o,
+        },
         weight: cost(o),
       })),
     ),
@@ -261,7 +276,14 @@ export async function fitsAtOnPool(
   const returns = Float64Array.from(request.returns);
   const tasks = segments(request.ends).map((ends) => ({
     job: 'fitsAtSegment' as const,
-    request: { returns, ends, model: request.model, dist: request.dist, mean: request.mean },
+    request: {
+      returns,
+      ends,
+      model: request.model,
+      dist: request.dist,
+      mean: request.mean,
+      targetVariance: request.targetVariance,
+    },
     weight: cost(ends) * (request.dist && request.dist !== 'normal' ? 2 : 1),
   }));
   const out = await pool.run<(FitAt | null)[]>(tasks, timeoutMs);
@@ -283,7 +305,13 @@ export async function weightedForecastOnPool(
   const tasks = [
     ...specs.map((spec) => ({
       job: 'weightedAsOf' as const,
-      request: { returns, spec, horizon: request.horizon, mean: request.mean },
+      request: {
+        returns,
+        spec,
+        horizon: request.horizon,
+        mean: request.mean,
+        targetVariance: request.targetVariance,
+      },
       weight: Infinity,
     })),
     ...specs.flatMap((spec) =>
@@ -294,6 +322,7 @@ export async function weightedForecastOnPool(
           model: spec.model,
           dist: spec.dist,
           mean: request.mean,
+          targetVariance: targets(spec, request.targetVariance),
           horizon: request.horizon,
           origins: o,
         },

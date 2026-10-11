@@ -45,7 +45,13 @@ export type WeightedForecastRequest = {
   readonly burnIn?: number;
   /** Every model's mean: a fitted constant (default) or zero. */
   readonly mean?: MeanModel;
+  /** Variance targeting for every garch and gjr model; an egarch one is fitted with ω free. */
+  readonly targetVariance?: boolean;
 };
+
+/** Whether a model of the set is fitted with variance targeting: garch and gjr when asked, never egarch. */
+export const targets = (spec: ModelSpec, targetVariance?: boolean) =>
+  targetVariance === true && spec.model !== 'egarch';
 
 export type WeightedModel = {
   readonly spec: ModelSpec;
@@ -189,13 +195,27 @@ export function weightedAsOf(request: {
   spec: ModelSpec;
   horizon: number;
   mean?: MeanModel;
+  targetVariance?: boolean;
 }): AsOfFit | null {
-  return safeAsOf(request.returns, request.spec, request.horizon, request.mean);
+  return safeAsOf(request.returns, request.spec, request.horizon, request.mean, request.targetVariance);
 }
 
-function safeAsOf(returns: ArrayLike<number>, spec: ModelSpec, horizon: number, mean?: MeanModel): AsOfFit | null {
+function safeAsOf(
+  returns: ArrayLike<number>,
+  spec: ModelSpec,
+  horizon: number,
+  mean?: MeanModel,
+  targetVariance?: boolean,
+): AsOfFit | null {
   try {
-    return asOfFit({ returns, model: spec.model, dist: spec.dist, mean, horizon });
+    return asOfFit({
+      returns,
+      model: spec.model,
+      dist: spec.dist,
+      mean,
+      targetVariance: targets(spec, targetVariance),
+      horizon,
+    });
   } catch {
     return null;
   }
@@ -213,6 +233,7 @@ export function weightedForecast(request: WeightedForecastRequest): WeightedFore
         model: spec.model,
         dist: spec.dist,
         mean: request.mean,
+        targetVariance: targets(spec, request.targetVariance),
         horizon: request.horizon,
         origins: o,
       }),
@@ -222,7 +243,7 @@ export function weightedForecast(request: WeightedForecastRequest): WeightedFore
     returns,
     request,
     specs,
-    specs.map((spec) => safeAsOf(returns, spec, request.horizon, request.mean)),
+    specs.map((spec) => safeAsOf(returns, spec, request.horizon, request.mean, request.targetVariance)),
     steps,
   );
 }

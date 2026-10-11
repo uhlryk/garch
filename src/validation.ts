@@ -94,6 +94,8 @@ export type ValidationOptions = {
   readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
+  /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
+  readonly targetVariance?: boolean;
   readonly horizon: number;
   readonly minTrain?: number;
   readonly step?: number;
@@ -129,6 +131,8 @@ export type ForecastsRequest = {
   readonly dist?: Distribution;
   /** A fitted constant (default) or zero; see `FitOptions.mean`. */
   readonly mean?: MeanModel;
+  /** Variance targeting (garch and gjr); see `FitOptions.targetVariance`. */
+  readonly targetVariance?: boolean;
   readonly horizon: number;
   /** Train-end indices, ascending; one segment (the caller cuts with `segments`). */
   readonly origins: readonly number[];
@@ -164,7 +168,7 @@ export function walkForwardSteps(request: ForecastsRequest): (WalkForwardStep | 
   const all = Float64Array.from(request.returns as ArrayLike<number>);
   let warm: GarchParams | null = null;
   return request.origins.map((origin) => {
-    const fit = safeFit(all.subarray(0, origin + 1), request.model, warm, request.dist, request.mean);
+    const fit = safeFit(all.subarray(0, origin + 1), request, warm);
     if (!fit?.converged) return null;
     warm = fit.params;
     return {
@@ -285,20 +289,27 @@ export function walkForwardValidation(returns: ArrayLike<number>, options: Valid
   const windows = validationWindows(returns.length, options);
   const run = (m: GarchModel) =>
     segments(windows.map((w) => w.origin)).flatMap((origins) =>
-      walkForwardForecasts({ returns, model: m, dist: options.dist, mean: options.mean, horizon, origins }),
+      walkForwardForecasts({
+        returns,
+        model: m,
+        dist: options.dist,
+        mean: options.mean,
+        targetVariance: options.targetVariance,
+        horizon,
+        origins,
+      }),
     );
   return scoreWalkForward(returns, windows, horizon, run(model), options.baseline === 'garch' ? run('garch') : null);
 }
 
 function safeFit(
   train: ArrayLike<number>,
-  model: GarchModel,
+  spec: Pick<ForecastsRequest, 'model' | 'dist' | 'mean' | 'targetVariance'>,
   warm: GarchParams | null,
-  dist?: Distribution,
-  mean?: MeanModel,
 ): GarchFit | null {
   try {
-    return fitGarch(train, { model, dist, mean, warmStart: warm });
+    const { model, dist, mean, targetVariance } = spec;
+    return fitGarch(train, { model, dist, mean, targetVariance, warmStart: warm });
   } catch {
     return null;
   }

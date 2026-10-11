@@ -115,6 +115,27 @@ describe('fitGarch', () => {
     }
   });
 
+  it('targets the variance under every distribution and mean, and refuses it for EGARCH', () => {
+    const r = simulate({ mu: 0.02, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85, nu: 6, lambda: -0.2 }, 2000, 33);
+    for (const options of [
+      { model: 'gjr', dist: 't' },
+      { model: 'gjr', dist: 'skewt' },
+      { model: 'garch', mean: 'zero' },
+    ] as const) {
+      const fit = fitGarch(r, { ...options, targetVariance: true });
+      assert.ok(fit.converged, JSON.stringify(options));
+      assert.ok(
+        rel(fit.params.omega / (1 - fit.persistence), fit.varianceTarget!) < 1e-12,
+        'the unconditional variance',
+      );
+      assert.ok(fit.logLikelihood <= fitGarch(r, options).logLikelihood + 1e-6);
+    }
+    const zero = fitGarch(r, { mean: 'zero', targetVariance: true });
+    assert.ok(rel(zero.varianceTarget!, r.reduce((a, v) => a + v * v, 0) / r.length) < 1e-12, 'about 0');
+    assert.equal(fitGarch(r).varianceTarget, null);
+    assert.throws(() => fitGarch(r, { model: 'egarch', targetVariance: true }), GarchInputError);
+  });
+
   it('refuses what it cannot fit', () => {
     assert.throws(() => fitGarch([1, 2, 3]), /at least 10 returns/);
     assert.throws(() => fitGarch(new Array(20).fill(0)), /no variance/);
@@ -603,6 +624,24 @@ describe('against arch', () => {
           assert.ok(rel(fit.inference!.pValues.gamma, a.gamma_pvalue) < 0.02, `${model} p(γ)`);
       }
     });
+    it(`${name}: variance targeting — the optimum scipy finds with ω tied to the sample variance`, () => {
+      const a = s.arch.targeting;
+      for (const model of ['garch', 'gjr'] as const) {
+        const want = a[model];
+        const fit = fitGarch(r, { model, targetVariance: true, inference: true });
+        assert.ok(fit.converged, model);
+        assert.ok(rel(fit.varianceTarget!, a.variance) < 1e-12);
+        assert.equal(fit.params.omega, fit.varianceTarget! * (1 - fit.persistence), `${model}: ω = var(r)·(1 − P)`);
+        assert.equal(fit.parameterCount, model === 'gjr' ? 4 : 3);
+        assert.ok(fit.logLikelihood >= want.loglik - 1e-6, `${model} ll ${fit.logLikelihood} vs ${want.loglik}`);
+        for (const k of ['mu', 'alpha', 'beta', 'omega'] as const)
+          assert.ok(rel(fit.params[k], want[k]) < 1e-4, `${model} ${k} ${fit.params[k]} vs ${want[k]}`);
+        if (want.gamma !== null) assert.ok(rel(fit.params.gamma, want.gamma) < 1e-4, `${model} γ`);
+        assert.ok(Number.isNaN(fit.inference!.standardErrors.omega), `${model}: ω was not estimated`);
+        assert.ok(fit.inference!.standardErrors.alpha > 0 && fit.inference!.standardErrors.beta > 0);
+        assert.ok(fit.logLikelihood <= fitGarch(r, { model }).logLikelihood + 1e-6, 'a constraint cannot raise it');
+      }
+    });
     it(`${name}: AIC and BIC, garch and gjr`, () => {
       for (const model of ['garch', 'gjr'] as const) {
         const fit = fitGarch(r, { model });
@@ -769,6 +808,26 @@ describe('the pool', () => {
     assert.deepEqual(answer, volatilityForecast(request));
     assert.equal(answer.mean, 'zero');
     assert.equal(answer.params.mu, 0);
+  });
+
+  it('carries variance targeting through the walk-forward and the weighted forecast, the same on the pool', async () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.05, gamma: 0.1, beta: 0.85 }, 900, 25);
+    const request = { returns: r, model: 'gjr' as const, targetVariance: true, horizon: 10, minTrain: 600 };
+    const models = [
+      { model: 'garch', dist: 'normal' },
+      { model: 'egarch', dist: 'normal' },
+    ] as const;
+    const weighted = { returns: r, horizon: 10, minTrain: 700, step: 20, models, targetVariance: true };
+    const pool = new GarchPool(2);
+    const answer = await volatilityForecastInWorkers(request, { pool });
+    const mixed = await weightedForecastInWorkers(weighted, { pool });
+    await pool.close();
+    assert.deepEqual(answer, volatilityForecast(request));
+    assert.equal(answer.varianceTarget, fitGarch(r, { targetVariance: true }).varianceTarget);
+    assert.ok(rel(answer.params.omega, answer.varianceTarget! * (1 - answer.persistence)) < 1e-15);
+    assert.deepEqual(mixed, weightedForecast(weighted));
+    assert.notEqual(mixed.models[0].asOf!.varianceTarget, null, 'garch targeted');
+    assert.equal(mixed.models[1].asOf!.varianceTarget, null, 'egarch fitted with ω free');
   });
 
   it('answers the walk-forward exactly as in-process, whatever its size', async () => {

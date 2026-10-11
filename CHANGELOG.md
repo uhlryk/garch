@@ -24,6 +24,11 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   `method='bootstrap'`), `filteredTailRisk` gives the one-step VaR and ES from
   their empirical quantile, and `varBacktest({ method: 'fhs' })` walks it
   forward.
+- Variance targeting, `targetVariance: true`, for garch and gjr: ω is tied to
+  the returns' variance, ω = var(r)·(1 − persistence), and leaves the search
+  space, the parameter count and the robust covariance; `GarchFit.varianceTarget`
+  reports the variance targeted. Threaded through the walk-forward,
+  `varBacktest`, `fitsAt`, the pool and the weighted forecast. EGARCH refuses it.
 
 ## [0.2.0] - 2026-10-11
 
