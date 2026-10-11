@@ -3,3 +3,11 @@ dist/
 dist-test/
 *.tgz
 .venv/
+
+# credentials never belong in the repo (or the npm tarball, which ships only dist/ and src/)
+.npmrc
+.env
+.env.*
+*.pem
+*.key
+*.log
