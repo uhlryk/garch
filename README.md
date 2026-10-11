@@ -107,7 +107,8 @@ same floor and bound handling as under t.
 returns, from where a fit stands (its last variance and residual, so step 1's
 variance is the one-step forecast) or from the unconditional variance. The
 innovations are normal, Student-t scaled to unit variance when the parameters
-carry ν, or Hansen's skewed t when they also carry λ; an EGARCH with t is
+carry ν, Hansen's skewed t when they also carry λ, or the fit's own residuals
+resampled (`innovations: { bootstrap: z }`, below); an EGARCH with t is
 refused, as in fitting. One seeded
 stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
 platform. The paths' mean variance converges to `forecastVariance`.
@@ -146,6 +147,17 @@ return under GARCH is not normal, so `simulatedTailRisk` reads VaR and ES off
 `simulate`'s paths. `varBacktest` walks a one-step VaR forward and
 `coverageTest` grades the violations: Kupiec's unconditional coverage,
 Christoffersen's independence, and both together.
+
+### Filtered historical simulation
+
+`tailRisk` and `simulate` assume the innovations' family. Filtered historical
+simulation (FHS) takes the tail from the data instead: the fit's own
+standardised residuals z_t, pushed through the variance recursion.
+
+- **One step:** `filteredTailRisk({ mean, variance, residuals, level })` is μ + √s_{T+1}·q̂, q̂ the ⌈level·n⌉-th smallest residual, and the ES the mean of the residuals at or below it — no paths needed.
+- **Several steps:** `simulate({ ..., innovations: { bootstrap: z } })` draws the innovations with replacement from z (seeded, as any simulation) and runs the same recursion; `simulatedTailRisk` reads VaR and ES off the paths. This is `arch`'s `forecast(method='bootstrap')`; on SPY's gjr fit the paths' mean variance agrees with `arch`'s over 10 steps to 2 % (Monte Carlo on both sides).
+- **Walked forward:** `varBacktest(returns, { ..., method: 'fhs' })` reads each origin's VaR off the residuals of that origin's fit over its train window, so it can be graded against the parametric VaR by the same coverage tests.
+- **Limits.** The residuals are resampled as they are, not rescaled to unit variance, and a level below 1/n has no residual in its tail and is refused. A GJR's unconditional start (no `lastVariance`) still uses the parameters' down share, not the residuals'.
 
 ### Is the difference more than noise? (Diebold–Mariano)
 
@@ -265,7 +277,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## Usage
 
 ```ts
-import { archLm, compareValidations, dieboldMariano, egarchForecast, extendFit, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { archLm, compareValidations, dieboldMariano, egarchForecast, extendFit, filteredTailRisk, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -290,6 +302,9 @@ archLm(z, 10);
 
 tailRisk({ mean: fit.params.mu, variance: forecastVariance(fit, 1)[0], nu: fit.params.nu, level: 0.01 });
 simulatedTailRisk(simulate({ ... , steps: 10, paths: 100_000, seed: 1 }), 0.01);   // 10-day VaR, ES
+filteredTailRisk({ mean: fit.params.mu, variance: forecastVariance(fit, 1)[0], residuals: z, level: 0.01 });   // FHS, one step
+simulate({ ..., innovations: { bootstrap: z } });                                   // FHS paths: residuals resampled
+varBacktest(returns, { model: 'gjr', level: 0.01, method: 'fhs' });
 varBacktest(returns, { model: 'gjr', dist: 't', level: 0.01, step: 1 });          // → violations, rate, Kupiec, Christoffersen
 
 const { validation } = volatilityForecast({ returns, model: 'gjr', horizon: 20 });
@@ -365,10 +380,11 @@ from this section.
 
 | export | what it does |
 |---|---|
-| `simulate(request)` | Seeded paths of returns and variances from a fit's state or the unconditional variance. |
+| `simulate(request)` | Seeded paths of returns and variances from a fit's state or the unconditional variance; `innovations: { bootstrap: z }` resamples residuals (FHS). |
 | `tailRisk({ mean, variance, nu?, lambda?, level })` | One-step VaR and ES, closed form. |
+| `filteredTailRisk({ mean, variance, residuals, level })` | One-step VaR and ES by filtered historical simulation: the empirical quantile of the standardised residuals. |
 | `simulatedTailRisk(simulation, level, steps?)` | VaR and ES of the cumulative return over simulated paths. |
-| `varBacktest(returns, options)` | A one-step VaR walked forward, its violations graded. |
+| `varBacktest(returns, options)` | A one-step VaR walked forward, its violations graded; `method: 'fhs'` reads it off each fit's residuals. |
 | `coverageTest(violations, level)` | Kupiec, Christoffersen and conditional coverage tests. |
 | `standardizedResiduals(fit, returns)` | z_t = (r_t − μ)/√s_t. |
 | `ljungBox(series, lags, modelDf?)`, `archLm(series, lags)` | Serial correlation and ARCH left in the residuals. |
@@ -429,6 +445,7 @@ the tests also run it in-process.
 - **A zero mean and the criteria.** garch, gjr and egarch with `mean: 'zero'` against `arch`'s `mean='Zero'`; AIC and BIC against `arch`'s; the zero mean carried through the pool.
 - **Refusals.** Fractional counts are refused; a pool timeout names the jobs it cut short.
 - **Value at risk.** Normal and t quantiles, VaR and ES against scipy; the one-step VaR read off simulated paths; Kupiec and Christoffersen statistics against a hand computation; a walked-forward VaR covers at its level when the model is the truth.
+- **Filtered historical simulation.** On SPY, the one-step VaR and ES against the same empirical quantile of `arch`'s residuals to 1e-9, and bootstrapped paths' mean variance against `arch`'s `method='bootstrap'` forecast to 2 %; on t draws the FHS VaR and ES converge to the t's; a seed gives the same resampled paths, drawn only from the residuals given; a walked-forward FHS VaR is each origin's fit's and covers at its level on a t path.
 - **Residual diagnostics.** Ljung–Box and ARCH-LM against statsmodels on the fixture series; the χ² tail against scipy; ARCH found in a GARCH path and none left in its standardised residuals.
 - **Against `arch`.** `test/fixtures/arch-2026-09-25.json` holds real IOVA and SPY closes (to 2026-09-23) and `arch`'s own answers. The package must match the parameters and σ̂ to 1e-3 / 1e-4, γ's p-value to 2 %, and IOVA's walk-forward QLIKE to 1e-3.
 - **The fixtures are regenerated, not hand-written.** `scripts/arch-fixtures/generate.py` reads the closes from the fixture and rewrites `arch`'s answers in both files, with the versions in its `requirements.txt` (`arch` 8.0.0) and a seeded simulation, recording both in each file's `source`:

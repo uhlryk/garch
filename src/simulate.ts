@@ -24,6 +24,13 @@ export type SimulationRequest = {
   readonly paths: number;
   /** The same seed gives the same paths, on any platform. */
   readonly seed: number;
+  /**
+   * Where the innovations come from: absent, the parametric family the params
+   * name; `{ bootstrap: z }`, drawn with replacement from z — a fit's
+   * standardised residuals (`standardizedResiduals`), as filtered historical
+   * simulation draws them. ν and λ are then not used for the draws.
+   */
+  readonly innovations?: { readonly bootstrap: ArrayLike<number> };
 };
 
 export type Simulation = {
@@ -104,6 +111,13 @@ function innovations(nu: number | undefined, lambda: number | undefined, seed: n
   return () => skewDraw(lambda, a, b, uniform(), standardT());
 }
 
+/** Draws with replacement from `z`, uniformly over its indices. */
+function bootstrap(z: ArrayLike<number>, seed: number): () => number {
+  const uniform = uniforms(seed);
+  const n = z.length;
+  return () => z[Math.floor(uniform() * n)];
+}
+
 /**
  * `paths` paths of `steps` returns each, from one seeded stream. GARCH and
  * GJR run s_t = ω + α·e² + γ·e²·[e < 0] + β·s; EGARCH its log recursion. An
@@ -124,6 +138,12 @@ export function simulate(request: SimulationRequest): Simulation {
     throw new RangeError('lastVariance and lastResidual go together: give both or neither');
   if (known && !(request.lastVariance! > 0))
     throw new RangeError(`lastVariance must be positive, got ${request.lastVariance}`);
+  const resample = request.innovations?.bootstrap;
+  if (resample) {
+    if (!resample.length) throw new RangeError('bootstrap needs at least one residual');
+    for (let i = 0; i < resample.length; i += 1)
+      if (!Number.isFinite(resample[i])) throw new RangeError(`bootstrap residual ${i} is not a finite number`);
+  }
   const egarch = model === 'egarch';
   const gamma = model === 'garch' ? 0 : p.gamma;
   if (!egarch && !(persistence({ ...p, gamma }) < 1) && !known)
@@ -142,7 +162,7 @@ export function simulate(request: SimulationRequest): Simulation {
     first = p.omega + p.alpha * e * e + gamma * (e < 0 ? e * e : 0) + p.beta * request.lastVariance!;
   } else first = p.omega / (1 - persistence({ ...p, gamma }));
 
-  const draw = innovations(p.nu, p.lambda, request.seed);
+  const draw = resample ? bootstrap(resample, request.seed) : innovations(p.nu, p.lambda, request.seed);
   const returns: Float64Array[] = [];
   const variance: Float64Array[] = [];
   for (let path = 0; path < paths; path += 1) {

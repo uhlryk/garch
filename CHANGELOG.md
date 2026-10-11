@@ -19,6 +19,11 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   scored origin's QLIKE terms (`scored`) and `dieboldMariano` against its
   baseline, with HAC lags for overlapping windows; `compareValidations` tests
   two validations against each other; `overlapOf` gives ⌈horizon/step⌉.
+- Filtered historical simulation: `simulate({ innovations: { bootstrap: z } })`
+  resamples standardised residuals through the recursion (as `arch`'s
+  `method='bootstrap'`), `filteredTailRisk` gives the one-step VaR and ES from
+  their empirical quantile, and `varBacktest({ method: 'fhs' })` walks it
+  forward.
 
 ## [0.2.0] - 2026-10-11
 

@@ -279,6 +279,25 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
   };
 }
 
+/**
+ * The variance path over `returns` of a model with these parameters, from the
+ * backcast `fitGarch` starts it at — the fit's own path when the parameters
+ * are its estimate.
+ */
+export function variancePath(
+  returns: ArrayLike<number>,
+  model: GarchModel,
+  params: GarchParams,
+  meanModel: MeanModel = 'constant',
+): Float64Array {
+  const { mean } = moments(returns);
+  const bc = backcast(returns, meanModel === 'zero' ? 0 : mean);
+  const variance = new Float64Array(returns.length);
+  if (model === 'egarch') egarchLogLikelihood(returns, params, Math.log(bc), variance);
+  else logLikelihood(returns, params, bc, variance);
+  return variance;
+}
+
 /** The returns' mean and variance, refusing what cannot be fitted. */
 function moments(returns: ArrayLike<number>, minimum = 10): { mean: number; variance: number } {
   const n = returns.length;

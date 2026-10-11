@@ -48,6 +48,7 @@ export type { JobName, JobRequest, JobResult } from './registry.js';
 export {
   type CoverageTest,
   coverageTest,
+  filteredTailRisk,
   normalQuantile,
   simulatedTailRisk,
   studentCdf,

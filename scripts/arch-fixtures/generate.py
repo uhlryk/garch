@@ -166,6 +166,46 @@ def extend_answers(r: np.ndarray) -> dict:
     }
 
 
+FHS_HORIZON = 10
+FHS_SIMULATIONS = 20_000
+
+
+def fhs_answers(r: np.ndarray) -> dict:
+    """Filtered historical simulation on a gjr fit: the one-step VaR and ES from the empirical
+    quantile of arch's standardised residuals (the ⌈level·n⌉-th smallest, the mean of those at or
+    below it — computed here, arch has no such function), and arch's own bootstrap forecast
+    (`method='bootstrap'`), which resamples the same residuals through the recursion."""
+    res = fit(r, 'GARCH', 1)
+    p = res.params
+    z = np.sort(np.asarray(res.std_resid))
+    variance_1 = float(res.forecast(horizon=1, reindex=False).variance.values[-1][0])
+    tail = {}
+    for level in (0.01, 0.05):
+        k = int(np.ceil(level * len(z)))
+        tail[str(level)] = {
+            'var': float(-(p['mu'] + np.sqrt(variance_1) * z[k - 1])),
+            'es': float(-(p['mu'] + np.sqrt(variance_1) * z[:k].mean())),
+        }
+    bootstrap = res.forecast(
+        horizon=FHS_HORIZON,
+        method='bootstrap',
+        simulations=FHS_SIMULATIONS,
+        random_state=np.random.RandomState(SEED),
+        reindex=False,
+    ).variance.values[-1]
+    return {
+        'mu': float(p['mu']),
+        'omega': float(p['omega']),
+        'alpha': float(p['alpha[1]']),
+        'gamma': float(p['gamma[1]']),
+        'beta': float(p['beta[1]']),
+        'variance_1': variance_1,
+        'tail': tail,
+        'bootstrap_variance': [float(v) for v in bootstrap],
+        'bootstrap_simulations': FHS_SIMULATIONS,
+    }
+
+
 def qlike_terms(realized: np.ndarray, forecast: np.ndarray) -> np.ndarray:
     ratio = np.maximum(realized / forecast, 1e-300)
     return ratio - np.log(ratio) - 1
@@ -282,6 +322,7 @@ def main() -> None:
         if name == 'spy':  # IOVA's quantized history makes a t fit degenerate (see quantizedUntil)
             s['arch']['skewt'] = skewt_answers(r)
             s['arch']['extend'] = extend_answers(r)
+            s['arch']['fhs'] = fhs_answers(r)
         egarch['series'][name] = egarch_answers(r)
     garch['skewt_distribution'] = skewt_distribution()
     garch['diebold_mariano'] = diebold_mariano_cases()

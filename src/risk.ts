@@ -1,9 +1,10 @@
 import { chiSquareSurvival } from './diagnostics.js';
-import type { Distribution, GarchModel, MeanModel } from './model.js';
+import type { Distribution, GarchModel, GarchParams, MeanModel } from './model.js';
 import { logGamma, normalQuantile, studentQuantile } from './special.js';
 
 export { normalQuantile, studentCdf, studentQuantile } from './special.js';
 
+import { variancePath } from './fit.js';
 import type { Simulation } from './simulate.js';
 import { skewPartialMoments, skewQuantile } from './skewt.js';
 import { segments, validationWindows, walkForwardSteps } from './validation.js';
@@ -65,6 +66,34 @@ export function tailRisk(request: {
   // E[T | T ≤ q] = −(ν + q²)/(ν − 1)·f(q)/level
   const tailMean = (-(nu + q * q) / (nu - 1)) * (density / level);
   return { valueAtRisk: -(mean + sd * scale * q), expectedShortfall: -(mean + sd * scale * tailMean) };
+}
+
+/**
+ * Filtered historical simulation, one step: VaR and ES of r = μ + √s·z with z
+ * the fit's own standardised residuals instead of a parametric family — the
+ * tail comes from the data. Empirical, as `simulatedTailRisk`: the
+ * ⌈level·n⌉-th smallest residual and the mean of those at or below it.
+ */
+export function filteredTailRisk(request: {
+  readonly mean: number;
+  readonly variance: number;
+  /** z_t = (r_t − μ)/√s_t of the fit (`standardizedResiduals`). */
+  readonly residuals: ArrayLike<number>;
+  readonly level: number;
+}): TailRisk {
+  const { mean, variance, residuals, level } = request;
+  checkLevel(level);
+  if (!(variance > 0)) throw new RangeError(`variance must be positive, got ${variance}`);
+  const sorted = Float64Array.from(residuals);
+  for (let i = 0; i < sorted.length; i += 1)
+    if (!Number.isFinite(sorted[i])) throw new RangeError(`residual ${i} is not a finite number`);
+  if (level * sorted.length < 1) throw new RangeError('too few residuals for this level: none would be in the tail');
+  const k = Math.ceil(level * sorted.length);
+  sorted.sort();
+  let tail = 0;
+  for (let i = 0; i < k; i += 1) tail += sorted[i];
+  const sd = Math.sqrt(variance);
+  return { valueAtRisk: -(mean + sd * sorted[k - 1]), expectedShortfall: -(mean + (sd * tail) / k) };
 }
 
 /**
@@ -158,6 +187,13 @@ export type VarBacktestOptions = {
   readonly level: number;
   readonly minTrain?: number;
   readonly step?: number;
+  /**
+   * How each origin's VaR is read: `parametric` (default) from the fitted
+   * innovations' family (`tailRisk`); `fhs`, filtered historical simulation,
+   * from the empirical quantile of that fit's standardised residuals over its
+   * train window (`filteredTailRisk`).
+   */
+  readonly method?: 'parametric' | 'fhs';
 };
 
 export type VarBacktest = CoverageTest & {
@@ -167,9 +203,18 @@ export type VarBacktest = CoverageTest & {
   readonly skipped: number;
 };
 
+/** The standardised residuals over a train window of the fit made on it. */
+function residualsOf(train: Float64Array, model: GarchModel, p: GarchParams, mean?: MeanModel): Float64Array {
+  const s = variancePath(train, model, p, mean);
+  const z = new Float64Array(train.length);
+  for (let t = 0; t < z.length; t += 1) z[t] = (train[t] - p.mu) / Math.sqrt(s[t]);
+  return z;
+}
+
 /**
  * One-step VaR walked forward: at each origin, fit on [0, origin], forecast
- * the VaR of return origin + 1 from s_{T+1} and the fit's μ (and ν), and count
+ * the VaR of return origin + 1 from s_{T+1} and the fit's μ and innovations
+ * (or, `method: 'fhs'`, its standardised residuals), and count
  * a violation when the return fell below −VaR. The windows are
  * `validationWindows`' (minTrain 500, step 10 by default; step 1 tests every
  * day, at one fit per day).
@@ -185,13 +230,16 @@ export function varBacktest(returns: ArrayLike<number>, options: VarBacktestOpti
   steps.forEach((s, i) => {
     if (!s) return;
     const origin = windows[i].origin;
-    const { valueAtRisk } = tailRisk({
-      mean: s.fit.params.mu,
-      variance: s.forecast,
-      nu: s.fit.params.nu,
-      lambda: s.fit.params.lambda,
-      level: options.level,
-    });
+    const p = s.fit.params;
+    const { valueAtRisk } =
+      options.method === 'fhs'
+        ? filteredTailRisk({
+            mean: p.mu,
+            variance: s.forecast,
+            residuals: residualsOf(all.subarray(0, origin + 1), model, p, options.mean),
+            level: options.level,
+          })
+        : tailRisk({ mean: p.mu, variance: s.forecast, nu: p.nu, lambda: p.lambda, level: options.level });
     forecasts.push({ origin, valueAtRisk, realized: all[origin + 1] });
   });
   return {
