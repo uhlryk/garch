@@ -13,6 +13,12 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   log-likelihood and criteria over the whole series, for every model,
   distribution and mean. `GarchFit.extendedBy` counts the returns added since
   the estimate (0 for a fit from `fitGarch`).
+- `dieboldMariano(lossA, lossB, horizon, { kernel })`: the Diebold–Mariano
+  test with a HAC (Newey–West or uniform) variance and the
+  Harvey–Leybourne–Newbold correction. Every `Validation` now carries each
+  scored origin's QLIKE terms (`scored`) and `dieboldMariano` against its
+  baseline, with HAC lags for overlapping windows; `compareValidations` tests
+  two validations against each other; `overlapOf` gives ⌈horizon/step⌉.
 
 ## [0.2.0] - 2026-10-11
 

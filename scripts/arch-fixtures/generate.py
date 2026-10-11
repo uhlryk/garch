@@ -23,6 +23,7 @@ import arch
 import numpy as np
 from arch import arch_model
 from arch.univariate import SkewStudent
+from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'test' / 'fixtures'
@@ -165,9 +166,41 @@ def extend_answers(r: np.ndarray) -> dict:
     }
 
 
-def qlike(realized: np.ndarray, forecast: np.ndarray) -> float:
+def qlike_terms(realized: np.ndarray, forecast: np.ndarray) -> np.ndarray:
     ratio = np.maximum(realized / forecast, 1e-300)
-    return float(np.mean(ratio - np.log(ratio) - 1))
+    return ratio - np.log(ratio) - 1
+
+
+def qlike(realized: np.ndarray, forecast: np.ndarray) -> float:
+    return float(np.mean(qlike_terms(realized, forecast)))
+
+
+def diebold_mariano(a: np.ndarray, b: np.ndarray, h: int, kernel: str = 'bartlett') -> dict:
+    """Diebold–Mariano by hand (no reference library has it): d = a − b, a HAC variance of its
+    mean with h − 1 lags (Bartlett 1 − k/h, or uniform), the Harvey–Leybourne–Newbold
+    correction, a two-sided p-value from t(n − 1)."""
+    d = a - b
+    n = len(d)
+    dc = d - d.mean()
+    gamma = [float(dc[k:] @ dc[: n - k]) / n for k in range(h)]
+    weights = [1.0] + [2 * (1 - k / h if kernel == 'bartlett' else 1) for k in range(1, h)]
+    long_run = sum(w * g for w, g in zip(weights, gamma))
+    dm = d.mean() / np.sqrt(long_run / n)
+    hln = dm * np.sqrt((n + 1 - 2 * h + h * (h - 1) / n) / n)
+    return {'statistic': float(hln), 'p_value': float(2 * stats.t.sf(abs(hln), n - 1)), 'mean': float(d.mean())}
+
+
+def diebold_mariano_cases() -> list:
+    """Two seeded, autocorrelated loss series, every (h, kernel) the tests check."""
+    rng = np.random.default_rng(SEED)
+    shocks = rng.standard_normal(81)
+    a = np.exp(0.3 * (shocks[1:] + 0.6 * shocks[:-1]))
+    b = np.exp(0.3 * rng.standard_normal(80)) + 0.05
+    return [
+        {'h': h, 'kernel': kernel, 'a': a.tolist(), 'b': b.tolist(), **diebold_mariano(a, b, h, kernel)}
+        for h in (1, 3, 5)
+        for kernel in ('bartlett', 'uniform')
+    ]
 
 
 def walk_forward(r: np.ndarray) -> dict:
@@ -188,7 +221,15 @@ def walk_forward(r: np.ndarray) -> dict:
         forecast.append(f)
         naive.append(b)
     realized, forecast, naive = map(np.asarray, (realized, forecast, naive))
-    return {'qlike': qlike(realized, forecast), 'naive_qlike': qlike(realized, naive), 'origins': len(realized)}
+    return {
+        'qlike': qlike(realized, forecast),
+        'naive_qlike': qlike(realized, naive),
+        'origins': len(realized),
+        # windows STEP apart, HORIZON long: ⌈HORIZON/STEP⌉ consecutive ones overlap
+        'diebold_mariano': diebold_mariano(
+            qlike_terms(realized, forecast), qlike_terms(realized, naive), -(-HORIZON // STEP)
+        ),
+    }
 
 
 def egarch_answers(r: np.ndarray) -> dict:
@@ -243,6 +284,7 @@ def main() -> None:
             s['arch']['extend'] = extend_answers(r)
         egarch['series'][name] = egarch_answers(r)
     garch['skewt_distribution'] = skewt_distribution()
+    garch['diebold_mariano'] = diebold_mariano_cases()
     garch['recorded'] = today
     garch['source'] = (
         f'daily closes as recorded; {versions}; '

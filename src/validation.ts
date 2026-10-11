@@ -1,3 +1,4 @@
+import { type DieboldMariano, type DieboldMarianoOptions, dieboldMariano } from './comparison.js';
 import { fitGarch, type GarchFit } from './fit.js';
 import { forecastVariance } from './forecast.js';
 import { checkCount, type Distribution, type GarchModel, type GarchParams, type MeanModel } from './model.js';
@@ -70,6 +71,22 @@ export type Validation = {
   readonly origins: number;
   /** Origins dropped because a fit did not converge or a forecast was not usable. */
   readonly skipped: number;
+  /** Each scored origin's QLIKE term and the baseline's, in order: `loss` is their mean. */
+  readonly scored: readonly ScoredOrigin[];
+  /**
+   * Diebold–Mariano of the model's QLIKE terms against the baseline's (HAC
+   * lags for the windows' overlap, ⌈horizon/step⌉ − 1): is the difference
+   * between `loss` and `baselineLoss` more than noise? null with too few
+   * scored origins or no variance in the differences.
+   */
+  readonly dieboldMariano: DieboldMariano | null;
+};
+
+/** One scored walk-forward origin. */
+export type ScoredOrigin = {
+  readonly origin: number;
+  readonly loss: number;
+  readonly baselineLoss: number;
 };
 
 export type ValidationOptions = {
@@ -172,6 +189,7 @@ export function scoreWalkForward(
   const realized: number[] = [];
   const forecast: number[] = [];
   const base: number[] = [];
+  const scored: ScoredOrigin[] = [];
   let skipped = 0;
   windows.forEach((w, i) => {
     const vhat = forecasts[i];
@@ -190,6 +208,7 @@ export function scoreWalkForward(
     realized.push(rv);
     forecast.push(vhat);
     base.push(bl);
+    scored.push({ origin: w.origin, loss: qlikeTerm(rv, vhat), baselineLoss: qlikeTerm(rv, bl) });
   });
   const loss = realized.length ? qlike(realized, forecast) : null;
   const baselineLoss = realized.length ? qlike(realized, base) : null;
@@ -199,7 +218,51 @@ export function scoreWalkForward(
     beatsBaseline: loss !== null && baselineLoss !== null ? loss < baselineLoss : null,
     origins: realized.length,
     skipped,
+    scored,
+    dieboldMariano: compareScored(scored, overlapOf(windows, horizon)),
   };
+}
+
+/** How many consecutive windows share a test day: ⌈horizon/step⌉ for windows `step` apart. */
+export function overlapOf(windows: readonly Window[], horizon: number): number {
+  const step = windows.length > 1 ? windows[1].origin - windows[0].origin : horizon;
+  return Math.ceil(horizon / step);
+}
+
+/** Diebold–Mariano of scored origins' losses against their baseline's; null where it cannot be computed. */
+function compareScored(scored: readonly ScoredOrigin[], overlap: number): DieboldMariano | null {
+  try {
+    return dieboldMariano(
+      scored.map((o) => o.loss),
+      scored.map((o) => o.baselineLoss),
+      overlap,
+    );
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
+/**
+ * Diebold–Mariano of two validations' QLIKE terms on the origins both
+ * scored — model against model, where each validation's own test is against
+ * its baseline (the weighted forecast's models, for one). `overlap` is
+ * ⌈horizon/step⌉ of the walk-forward they share.
+ */
+export function compareValidations(
+  a: Validation,
+  b: Validation,
+  overlap = 1,
+  options?: DieboldMarianoOptions,
+): DieboldMariano {
+  const other = new Map(b.scored.map((o) => [o.origin, o.loss]));
+  const common = a.scored.filter((o) => other.has(o.origin));
+  return dieboldMariano(
+    common.map((o) => o.loss),
+    common.map((o) => other.get(o.origin)!),
+    overlap,
+    options,
+  );
 }
 
 /** The windows a validation with these options scores. */

@@ -9,7 +9,9 @@ import {
   asOfFit,
   backcast,
   chiSquareSurvival,
+  compareValidations,
   coverageTest,
+  dieboldMariano,
   extendFit,
   fitGarch,
   fitsAt,
@@ -34,6 +36,7 @@ import {
   volatilityForecast,
   WEIGHTED_MODELS,
   walkForwardOrigins,
+  walkForwardValidation,
   weighForecasts,
   weightedForecast,
 } from '../src/index.js';
@@ -391,9 +394,63 @@ describe('walk-forward', () => {
     assert.equal(w[w.length - 1].origin <= 94, true);
   });
 
+  it("keeps each scored origin's QLIKE terms, and tests their difference by Diebold–Mariano over the windows' overlap", () => {
+    const r = simulate({ mu: 0, omega: 0.05, alpha: 0.03, gamma: 0.15, beta: 0.85 }, 1500, 29);
+    const v = walkForwardValidation(r, { model: 'gjr', horizon: 10, step: 5, baseline: 'garch' });
+    assert.equal(v.scored.length, v.origins);
+    const meanOf = (x: number[]) => x.reduce((a, b) => a + b, 0) / x.length;
+    assert.ok(rel(meanOf(v.scored.map((o) => o.loss)), v.loss!) < 1e-12);
+    assert.ok(rel(meanOf(v.scored.map((o) => o.baselineLoss)), v.baselineLoss!) < 1e-12);
+    const dm = v.dieboldMariano!;
+    assert.equal(dm.lags, 1, 'windows 10 long, 5 apart: two overlap');
+    assert.deepEqual(
+      dm,
+      dieboldMariano(
+        v.scored.map((o) => o.loss),
+        v.scored.map((o) => o.baselineLoss),
+        2,
+      ),
+    );
+    assert.ok(rel(dm.meanDifference, v.loss! - v.baselineLoss!) < 1e-9);
+    // model against model, on the origins both scored
+    const garch = { ...v, scored: v.scored.slice(3).map((o) => ({ ...o, loss: o.baselineLoss })) };
+    const both = compareValidations(v, garch, 2);
+    assert.equal(both.observations, v.origins - 3);
+    assert.deepEqual(
+      both,
+      dieboldMariano(
+        v.scored.slice(3).map((o) => o.loss),
+        v.scored.slice(3).map((o) => o.baselineLoss),
+        2,
+      ),
+    );
+  });
+
   it('scores QLIKE at 0 for a perfect forecast and harder for under- than over-prediction', () => {
     assert.equal(qlike([2, 3], [2, 3]), 0);
     assert.ok(qlike([2], [1]) > qlike([2], [4]));
+  });
+});
+
+describe('Diebold–Mariano', () => {
+  it('is the hand computation: HAC variance (Bartlett or uniform), the HLN correction, t(n − 1)', () => {
+    for (const c of fixture.diebold_mariano) {
+      const kernel = c.kernel as 'bartlett' | 'uniform';
+      const dm = dieboldMariano(c.a, c.b, c.h, { kernel });
+      assert.equal(dm.observations, c.a.length);
+      assert.equal(dm.lags, c.h - 1);
+      assert.ok(rel(dm.meanDifference, c.mean) < 1e-12);
+      assert.ok(rel(dm.statistic, c.statistic) < 1e-12, `h ${c.h} ${kernel}: ${dm.statistic} vs ${c.statistic}`);
+      assert.ok(rel(dm.pValue, c.p_value) < 1e-9, `h ${c.h} ${kernel}: p ${dm.pValue} vs ${c.p_value}`);
+    }
+  });
+
+  it('refuses what it cannot test', () => {
+    assert.throws(() => dieboldMariano([1, 2, 3], [1, 2]), RangeError);
+    assert.throws(() => dieboldMariano([1, 2, 3, 4], [1, 2, 3, 4]), /no positive long-run variance/);
+    assert.throws(() => dieboldMariano([1, 2, 3, 4], [0, 1, 3, 2], 1.5), /horizon/);
+    assert.throws(() => dieboldMariano([1, 2, 3], [0, 1, 3], 3), /too few/);
+    assert.throws(() => dieboldMariano([1, NaN, 3, 4], [0, 1, 3, 2]), /not a finite/);
   });
 });
 
@@ -475,6 +532,11 @@ describe('against arch', () => {
     assert.ok(rel(out.validation.loss!, s.arch.garch.qlike!) < 1e-3);
     assert.ok(rel(out.validation.baselineLoss!, s.arch.garch.naive_qlike!) < 1e-9);
     assert.equal(out.validation.beatsBaseline, true);
+    // the same test on arch's per-origin losses: forecasts within 1e-3 move it by less than 1 %
+    const dm = out.validation.dieboldMariano!;
+    const a = s.arch.garch.diebold_mariano!;
+    assert.ok(rel(dm.statistic, a.statistic) < 1e-2, `DM ${dm.statistic} vs ${a.statistic}`);
+    assert.ok(rel(dm.pValue, a.p_value) < 5e-2, `p ${dm.pValue} vs ${a.p_value}`);
   });
 });
 

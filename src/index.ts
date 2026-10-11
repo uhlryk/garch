@@ -1,3 +1,4 @@
+export { type DieboldMariano, type DieboldMarianoOptions, dieboldMariano } from './comparison.js';
 export {
   archLm,
   chiSquareSurvival,
@@ -61,9 +62,12 @@ export { type Simulation, type SimulationRequest, simulate } from './simulate.js
 export { skewDownShare, skewPartialMoments, skewQuantile } from './skewt.js';
 export {
   type Baseline,
+  compareValidations,
   type ForecastsRequest,
+  overlapOf,
   qlike,
   realizedVariance,
+  type ScoredOrigin,
   SEGMENT_ORIGINS,
   scoreWalkForward,
   segments,

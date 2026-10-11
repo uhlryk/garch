@@ -147,6 +147,23 @@ return under GARCH is not normal, so `simulatedTailRisk` reads VaR and ES off
 `coverageTest` grades the violations: Kupiec's unconditional coverage,
 Christoffersen's independence, and both together.
 
+### Is the difference more than noise? (Diebold–Mariano)
+
+A walk-forward says the model's mean QLIKE is below the baseline's; the
+Diebold–Mariano test says whether that is more than noise. Every `Validation`
+keeps each scored origin's QLIKE term and the baseline's (`scored`), and
+carries `dieboldMariano`: the mean difference (model − baseline, below 0 the
+model lost less), its HAC standard error, the statistic with the
+Harvey–Leybourne–Newbold small-sample correction, and a two-sided p-value from
+t(n − 1). For gjr and egarch the baseline is symmetric garch, so the test asks
+whether the asymmetry earns its keep; for garch, whether it beats the naive
+trailing variance.
+
+- **Overlapping windows.** Windows `horizon` long and `step` apart share test days with the next ⌈horizon/step⌉ − 1 windows, so their loss differences are autocorrelated that far; those are the HAC lags (the test's "h" is ⌈horizon/step⌉). At the default step 10 and horizon 20, one lag.
+- **The HAC weights** are Newey–West's Bartlett 1 − k/h by default, never negative; `kernel: 'uniform'` gives Diebold and Mariano's original, R's `forecast::dm.test` default, which can come out non-positive (then refused). Neither `arch` nor statsmodels has the test; `scripts/arch-fixtures/generate.py` computes it by hand in numpy, and the statistic and p-value here agree to 1e-12.
+- **Model against model.** `compareValidations(a, b, overlap)` tests two validations' terms on the origins both scored — the weighted forecast's models against one another, say.
+- A skipped origin (a fit that did not converge) leaves a gap the HAC lags do not see; with few skips the effect is small.
+
 ## The optimiser, and why it has six starts
 
 BFGS with an analytic gradient runs in an unconstrained space where every point
@@ -248,7 +265,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## Usage
 
 ```ts
-import { archLm, egarchForecast, extendFit, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { archLm, compareValidations, dieboldMariano, egarchForecast, extendFit, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -274,6 +291,11 @@ archLm(z, 10);
 tailRisk({ mean: fit.params.mu, variance: forecastVariance(fit, 1)[0], nu: fit.params.nu, level: 0.01 });
 simulatedTailRisk(simulate({ ... , steps: 10, paths: 100_000, seed: 1 }), 0.01);   // 10-day VaR, ES
 varBacktest(returns, { model: 'gjr', dist: 't', level: 0.01, step: 1 });          // → violations, rate, Kupiec, Christoffersen
+
+const { validation } = volatilityForecast({ returns, model: 'gjr', horizon: 20 });
+validation.dieboldMariano;           // → { meanDifference, statistic, pValue, … }: gjr vs garch, more than noise?
+dieboldMariano(lossA, lossB, 2);     // any two loss series; h = ⌈horizon/step⌉
+compareValidations(models[1].validation, models[0].validation, 2);   // model against model
 
 // on a pool (Node: /node, browser: /web): the walk-forward's segments across workers — the in-process answer, faster
 await volatilityForecastInWorkers({ returns, model: 'gjr', horizon: 20, rivalsWithin: 1.92 }, { timeoutMs: 120_000 });
@@ -327,7 +349,10 @@ from this section.
 
 | export | what it does |
 |---|---|
-| `walkForwardValidation(returns, options)` | QLIKE of the model's walked-forward forecasts against a `'naive'` or `'garch'` baseline. |
+| `walkForwardValidation(returns, options)` | QLIKE of the model's walked-forward forecasts against a `'naive'` or `'garch'` baseline, each origin's terms (`scored`) and their Diebold–Mariano test. |
+| `dieboldMariano(lossA, lossB, horizon?, options?)` | Diebold–Mariano with a HAC variance (Bartlett or uniform, horizon − 1 lags) and the HLN correction: is A's loss below B's by more than noise? |
+| `compareValidations(a, b, overlap?, options?)` | Diebold–Mariano of two validations' QLIKE terms on the origins both scored. |
+| `overlapOf(windows, horizon)` | ⌈horizon/step⌉: how many consecutive windows share a test day — the test's h. |
 | `walkForwardOrigins(n, minTrain, horizon, step?)` | The expanding windows; no test index ever precedes a train index. |
 | `validationWindows(n, options)` | The windows a validation scores (minTrain 500, step 10 by default). |
 | `walkForwardForecasts(request)`, `walkForwardSteps(request)` | One segment's forecasts, and with each origin's fit kept. |
@@ -398,6 +423,7 @@ the tests also run it in-process.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
+- **Diebold–Mariano.** Statistic and p-value against a numpy hand computation to 1e-12 / 1e-9, for h = 1, 3, 5 and both kernels; IOVA's garch-vs-naive test against the same computation on `arch`'s walk-forward to 1 %; the per-origin terms average to the validation's loss; two validations compared on the origins both scored.
 - **Extending a fit.** For garch, gjr (normal, t, skewed t, zero mean) the extended fit's variance path and log-likelihood equal `logLikelihood` over the whole series to the bit, EGARCH's to 1e-13; extending in steps equals extending at once; the forecast starts from the new last state; on SPY it reaches `arch`'s `fix()` variance and one-step forecast to 1e-10.
 - **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal, t and skewed t) and EGARCH, and their innovations have unit variance.
 - **A zero mean and the criteria.** garch, gjr and egarch with `mean: 'zero'` against `arch`'s `mean='Zero'`; AIC and BIC against `arch`'s; the zero mean carried through the pool.
