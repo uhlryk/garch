@@ -10,7 +10,7 @@ on:
 
 permissions:
   contents: write # the GitHub Release
-  id-token: write # npm provenance / trusted publishing
+  id-token: write # npm trusted publishing and provenance
 
 jobs:
   publish:
@@ -41,9 +41,8 @@ jobs:
           fi
       - run: npm ci
       # prepublishOnly runs the tests, prepack builds dist/
+      # trusted publishing: npm exchanges the workflow's OIDC token, no secret
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}

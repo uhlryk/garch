@@ -1,6 +1,6 @@
 {
   "name": "@krzysztofsztompka/garch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GARCH(1,1), GJR-GARCH(1,1) and EGARCH(1,1,1) by maximum likelihood, with walk-forward validation — pure TypeScript, no runtime dependencies",
   "keywords": [
     "garch",

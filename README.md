@@ -311,9 +311,8 @@ Move `CHANGELOG.md`'s `Unreleased` entries under the new version, set
 `package.json`'s version to match, commit, then push a tag `v<version>`. The
 `release` workflow refuses a tag that differs from the version or has no
 changelog section; otherwise it tests, publishes to npm with provenance and
-makes the GitHub Release from that section. npm must trust the workflow: a
-trusted publisher (`uhlryk/garch`, `release.yml`) set on npmjs.com, or an
-`NPM_TOKEN` repository secret holding an automation token.
+makes the GitHub Release from that section. npm trusts the workflow as a
+trusted publisher (`uhlryk/garch`, `release.yml`), so no token is stored.
 
 ## Licence
 

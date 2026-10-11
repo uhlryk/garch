@@ -6,6 +6,8 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-11
+
 ### Added
 
 - `GarchFit.aic`, `.bic` and `.parameterCount`; `aic` and `bic` on `asOfFit` /
@@ -62,5 +64,6 @@ The first public release.
   answer to the bit, one deadline per call and cancellation.
 - ES modules and CommonJS, with type declarations; Node ≥ 20.
 
-[Unreleased]: https://github.com/uhlryk/garch/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/uhlryk/garch/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/uhlryk/garch/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/uhlryk/garch/releases/tag/v0.1.0
