@@ -36,6 +36,7 @@ export const WEIGHTED_MODELS: readonly ModelSpec[] = [
 /** Past windows a model needs before its loss decides its weight; until then the weights are equal. */
 export const WEIGHT_BURN_IN = 20;
 
+/** `weightedForecast`'s question: the returns, the horizon, the windows and the models to weigh. */
 export type WeightedForecastRequest = {
   readonly returns: ArrayLike<number>;
   readonly horizon: number;
@@ -59,6 +60,7 @@ export const targets = (spec: ModelSpec, targetVariance?: boolean) =>
 export const exogenousFor = (spec: ModelSpec, exogenous?: ArrayLike<number>) =>
   spec.model === 'egarch' ? undefined : exogenous;
 
+/** One model of the weighted set: its as-of fit, its own validation and its weight. */
 export type WeightedModel = {
   readonly spec: ModelSpec;
   /** The fit on the whole history; null when it could not be made. */
@@ -79,6 +81,7 @@ export type WeightedOrigin = {
   readonly fits: (FitAt | null)[];
 };
 
+/** `weightedForecast`'s answer: the models, the weighted forecast and variance path, its validation and every origin's weights. */
 export type WeightedForecast = {
   readonly models: readonly WeightedModel[];
   /** Σ wᵢ·s_{T+k} over the models with a forecast; null when none has one. */

@@ -22,11 +22,13 @@ import { innovations, nextVariance } from './simulate.js';
 /** What stage 1 fits each asset with: `fitGarch`'s specification. */
 export type DccAssetSpec = Pick<FitOptions, 'model' | 'dist' | 'mean' | 'targetVariance' | 'nuMin'>;
 
+/** `fitDcc`'s options: how stage 1 fits each asset. */
 export type DccOptions = {
   /** One specification for every asset, or one per asset (default: garch, normal, constant mean). */
   readonly models?: DccAssetSpec | readonly DccAssetSpec[];
 };
 
+/** A two-stage DCC-GARCH fit: each asset's fit, the DCC(1,1) dynamics and every day's correlation. */
 export type DccFit = {
   /** Stage 1: each asset's fit, in the order given. */
   readonly assets: readonly GarchFit[];
@@ -50,6 +52,7 @@ export type DccFit = {
   readonly logLikelihood: number;
 };
 
+/** `dccForecast`'s answer: covariance, correlation and each asset's variance, step by step. */
 export type DccForecast = {
   /** H_{T+1} … H_{T+h}, each N×N. */
   readonly covariance: number[][][];
@@ -294,6 +297,7 @@ export function portfolioVariance(covariance: readonly (readonly number[])[], we
   return v;
 }
 
+/** What `portfolioTailRisk` reads a portfolio's VaR and ES from. */
 export type PortfolioTailRiskRequest = {
   readonly dcc: DccFit;
   /** One per asset: the portfolio return is Σ wᵢ·rᵢ. */
@@ -309,6 +313,7 @@ export type PortfolioTailRiskRequest = {
   readonly method?: 'normal' | 'simulated';
 };
 
+/** A portfolio's VaR and ES, and how they were computed. */
 export type PortfolioTailRisk = TailRisk & {
   /** `normal`: closed form, one day with every asset normal; `simulated` otherwise. */
   readonly method: 'normal' | 'simulated';

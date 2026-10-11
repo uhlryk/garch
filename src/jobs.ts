@@ -35,6 +35,7 @@ export type VolatilityForecastRequest = {
   readonly rivalsWithin?: number;
 };
 
+/** `volatilityForecast`'s answer: the as-of fit and forecast, and the model graded walk-forward against its baseline. */
 export type VolatilityForecast = {
   readonly model: GarchModel;
   readonly mean: MeanModel;
@@ -64,6 +65,7 @@ export type VolatilityForecast = {
   readonly validation: Validation;
 };
 
+/** The as-of half of a `VolatilityForecast`: the fit on everything and its forecast, without the walk-forward. */
 export type AsOfFit = Omit<VolatilityForecast, 'validation'>;
 
 /** Another optimum of the as-of likelihood, with what it would have answered. */
@@ -169,6 +171,7 @@ export function volatilityForecast(request: VolatilityForecastRequest): Volatili
   };
 }
 
+/** `fitsAt`'s question: the returns and the train ends to fit at. */
 export type FitsAtRequest = {
   readonly returns: ArrayLike<number>;
   /** Train-end indices: each fit sees returns[0 … end]. */

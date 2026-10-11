@@ -27,6 +27,7 @@ export class GarchJobTimeoutError extends Error {}
 /** The worker failed for any other reason. */
 export class GarchJobFailedError extends Error {}
 
+/** How one pool call runs: its deadline and the pool. */
 export type RunOptions = {
   readonly timeoutMs?: number;
   /** The pool to run on; the environment's shared default when absent. */
@@ -38,16 +39,21 @@ export type PoolTask = { readonly job: JobName; readonly request: unknown; reado
 
 /** One worker as the pool drives it, whatever its runtime. */
 export type PoolWorker = {
+  /** Hands the worker one job. */
   post(message: { readonly job: JobName; readonly request: unknown }): void;
+  /** Stops the worker, whatever it is running. */
   terminate(): unknown;
   /** Busy: keep the process alive (worker threads); idle: let it exit. Optional. */
   hold?(): void;
+  /** Idle again: the worker no longer keeps the process alive. Optional. */
   release?(): void;
 };
 
 /** What a worker reports back: an answer, or that it was lost (crashed, exited) with a reason. */
 export type WorkerEvents = {
+  /** The worker answered its job: a result, or why the job failed. */
   readonly answer: (answer: Answer) => void;
+  /** The worker is gone — crashed or exited — before answering. */
   readonly lost: (reason: string) => void;
 };
 

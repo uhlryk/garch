@@ -18,6 +18,7 @@ export function standardizedResiduals(fit: GarchFit, returns: ArrayLike<number>)
   return z;
 }
 
+/** A χ² test's answer: the statistic, its degrees of freedom and the upper-tail p-value. */
 export type TestResult = {
   readonly statistic: number;
   /** Degrees of freedom of the χ² it is referred to. */

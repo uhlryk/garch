@@ -39,6 +39,7 @@ export type SimulationRequest = {
   readonly exogenous?: number | ArrayLike<number>;
 };
 
+/** Simulated paths: returns and the variances they were drawn with. */
 export type Simulation = {
   /** One per path: r_1 … r_steps. */
   readonly returns: Float64Array[];

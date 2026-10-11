@@ -18,6 +18,9 @@ import {
   WorkerPool,
   weightedForecastOnPool,
 } from './pool.js';
+
+export type { Answer } from './worker-core.js';
+
 import type { JobName, JobRequest, JobResult } from './registry.js';
 import type { WeightedForecast, WeightedForecastRequest } from './weighted.js';
 import { workerFile } from './worker-file.js';
@@ -27,7 +30,9 @@ export {
   GarchJobInputError,
   GarchJobTimeoutError,
   type PoolTask,
+  type PoolWorker,
   type RunOptions,
+  type WorkerEvents,
   WorkerPool,
 } from './pool.js';
 

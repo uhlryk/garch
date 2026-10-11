@@ -61,8 +61,10 @@ export function realizedVariance(returns: ArrayLike<number>, from = 0, to = retu
   return s / (to - from + 1);
 }
 
+/** What a walk-forward's model must beat: the trailing realised variance (`naive`) or symmetric GARCH (`garch`). */
 export type Baseline = 'naive' | 'garch';
 
+/** A walk-forward's grade: the model's and the baseline's mean QLIKE, each scored origin's terms, and their Diebold–Mariano test. */
 export type Validation = {
   readonly loss: number | null;
   readonly baselineLoss: number | null;
@@ -89,6 +91,7 @@ export type ScoredOrigin = {
   readonly baselineLoss: number;
 };
 
+/** `walkForwardValidation`'s specification: the model, the horizon, the windows and the baseline. */
 export type ValidationOptions = {
   readonly model: GarchModel;
   readonly dist?: Distribution;
@@ -127,6 +130,7 @@ export function segments<T>(items: readonly T[], size = SEGMENT_ORIGINS): T[][] 
   return out;
 }
 
+/** One walk-forward segment's question: the returns, the model and the origins to fit at. */
 export type ForecastsRequest = {
   readonly returns: ArrayLike<number>;
   readonly model: GarchModel;

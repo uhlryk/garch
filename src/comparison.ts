@@ -21,6 +21,7 @@ export type DieboldMariano = {
   readonly lags: number;
 };
 
+/** How `dieboldMariano` weighs the autocovariances. */
 export type DieboldMarianoOptions = {
   /**
    * The HAC weights of the autocovariances: `bartlett` (default), Newey–West's

@@ -41,6 +41,11 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   `simulate` and `extendFit` take x, and the walk-forward, `varBacktest`,
   `fitsAt`, the pool and the weighted forecast thread it through.
 
+- API documentation built by TypeDoc (`npm run docs`, which fails on an
+  export without a doc comment) and published on GitHub Pages; the package's
+  `homepage` points there. `/node` and `/web` export the types `PoolWorker`,
+  `WorkerEvents` and `Answer` that `WorkerPool`'s constructor refers to.
+
 ### Changed
 
 - `logLikelihood` and `logLikelihoodGradient` take an optional exogenous

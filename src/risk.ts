@@ -123,6 +123,7 @@ export function simulatedTailRisk(simulation: Simulation, level: number, steps?:
   return { valueAtRisk: -sums[k - 1], expectedShortfall: -tail / k };
 }
 
+/** How a VaR's violations grade: their count and rate, and Kupiec's, Christoffersen's and the joint test. */
 export type CoverageTest = {
   readonly observations: number;
   readonly violations: number;
@@ -179,6 +180,7 @@ export function coverageTest(violations: readonly boolean[], level: number): Cov
   };
 }
 
+/** `varBacktest`'s specification: the model, the VaR level, the windows and how the VaR is read. */
 export type VarBacktestOptions = {
   readonly model?: GarchModel;
   readonly dist?: Distribution;
@@ -200,6 +202,7 @@ export type VarBacktestOptions = {
   readonly method?: 'parametric' | 'fhs';
 };
 
+/** A walked-forward one-step VaR: every forecast and the return that came, and the coverage tests of the violations. */
 export type VarBacktest = CoverageTest & {
   /** One per scored origin: the VaR forecast for origin + 1 and the return that came. */
   readonly forecasts: readonly { readonly origin: number; readonly valueAtRisk: number; readonly realized: number }[];

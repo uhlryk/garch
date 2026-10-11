@@ -17,6 +17,9 @@ export const JOBS = {
   fitGarch: (request: { readonly returns: ArrayLike<number>; readonly options?: FitOptions }) =>
     fitGarch(request.returns, request.options),
 } as const;
+/** The name of a job a worker can run (`runInWorker`). */
 export type JobName = keyof typeof JOBS;
+/** What job `J` takes. */
 export type JobRequest<J extends JobName> = Parameters<(typeof JOBS)[J]>[0];
+/** What job `J` answers. */
 export type JobResult<J extends JobName> = ReturnType<(typeof JOBS)[J]>;

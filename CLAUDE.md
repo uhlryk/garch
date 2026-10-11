@@ -16,11 +16,13 @@ Done means all of these, in the same commit as the code:
 - **package.json** `description`/`keywords` when the feature changes what the package is.
 - `npm run docs:check` passes (CI runs it): it fails on any export without an API
   reference row. It cannot check prose — that part is on the change's author.
+- `npm run docs` passes (CI runs it): TypeDoc fails on an exported value or type
+  without a doc comment.
 
 ## Checks before committing
 
 `npm run lint`, `npm run typecheck`, `npm test` (or `npm run coverage` on Node ≥ 22.8),
-`npm run build && npm run docs:check`. Numbers compared against Python come from
+`npm run build && npm run docs:check`, `npm run docs`. Numbers compared against Python come from
 `scripts/arch-fixtures/generate.py` (pinned versions), never typed in by hand.
 
 ## Workflow

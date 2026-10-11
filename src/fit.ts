@@ -16,8 +16,10 @@ import {
 import { bfgs, type Objective } from './optimize.js';
 import { skewDownShare } from './skewt.js';
 
+/** Thrown on input that cannot be fitted: too few returns, a non-finite one, no variance, a refused specification. */
 export class GarchInputError extends Error {}
 
+/** `fitGarch`'s specification: the model, its innovations and mean, and what else to compute. */
 export type FitOptions = {
   readonly model?: GarchModel;
   /** A fitted constant (default) or zero — μ held at 0. */
@@ -43,11 +45,13 @@ export type FitOptions = {
   readonly exogenous?: ArrayLike<number>;
 };
 
+/** Robust (Bollerslev–Wooldridge) standard errors and two-sided p-values, one per parameter; NaN where a parameter was not fitted. */
 export type Inference = {
   readonly standardErrors: GarchParams;
   readonly pValues: GarchParams;
 };
 
+/** A fitted model: its parameters, likelihood and criteria, variance path, the optima reached, and inference when asked. */
 export type GarchFit = {
   readonly model: GarchModel;
   readonly mean: MeanModel;

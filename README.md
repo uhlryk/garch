@@ -12,6 +12,9 @@ one optimum, and find a higher one where it has several.
 npm install @krzysztofsztompka/garch
 ```
 
+**API documentation:** <https://uhlryk.github.io/garch/> — every export, option
+type and result field, built by TypeDoc from the declarations' comments.
+
 Node ≥ 20. The core (`@krzysztofsztompka/garch`) runs anywhere; the worker pool
 comes as `@krzysztofsztompka/garch/node` (Node's `worker_threads`) and
 `@krzysztofsztompka/garch/web` (Web Workers, ES modules only).
@@ -390,8 +393,11 @@ reject with one of three errors, so a caller can word each:
 
 Every value each entry point exports, one line each. The types (`GarchFit`,
 `FitOptions`, `VolatilityForecast`, …) come with the declarations, and each
-field is commented there. `npm run docs:check` fails when an export is missing
-from this section.
+field is commented there; the [API documentation](https://uhlryk.github.io/garch/)
+renders them. `npm run docs:check` fails when an export is missing from this
+section, and `npm run docs` (TypeDoc, into `docs-site/`) when an export has no
+doc comment; CI runs both, and the `pages` workflow publishes the site on every
+push to `main`.
 
 ### `@krzysztofsztompka/garch`
 

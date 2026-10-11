@@ -29,7 +29,7 @@
     "type": "git",
     "url": "git+https://github.com/uhlryk/garch.git"
   },
-  "homepage": "https://github.com/uhlryk/garch#readme",
+  "homepage": "https://uhlryk.github.io/garch/",
   "bugs": "https://github.com/uhlryk/garch/issues",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
@@ -83,6 +83,7 @@
     "typecheck": "tsc -p tsconfig.test.json --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "docs": "typedoc",
     "docs:check": "node scripts/check-readme.mjs",
     "test": "tsc -p tsconfig.test.json && node --test dist-test/test/garch.test.js",
     "coverage": "tsc -p tsconfig.test.json && node --test --experimental-test-coverage --test-coverage-exclude='dist-test/test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=80 dist-test/test/garch.test.js",
@@ -93,6 +94,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "^22.10.7",
+    "typedoc": "^0.28.20",
     "typescript": "^5.7.3"
   },
   "publishConfig": {

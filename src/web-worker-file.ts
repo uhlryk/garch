@@ -8,8 +8,11 @@
 
 /** The part of a DOM `Worker` the pool uses. */
 export type WebWorker = {
+  /** Sends the worker a message. */
   postMessage(message: unknown): void;
+  /** Stops the worker. */
   terminate(): void;
+  /** Listens for its answers and its failures. */
   addEventListener(
     type: 'message' | 'error' | 'messageerror',
     listener: (event: { readonly data?: unknown; readonly message?: string }) => void,
