@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GARCH in the browser</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 40rem; padding: 0 1rem; }
+      pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>GJR-GARCH on Web Workers</h1>
+    <p>
+      A walk-forward of GJR-GARCH on SPY, its fits spread over Web Workers by
+      <code>@krzysztofsztompka/garch/web</code>; the page stays responsive while it runs.
+    </p>
+    <button id="run">Run</button>
+    <pre id="out">…</pre>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

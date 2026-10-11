@@ -41,3 +41,10 @@ jobs:
           npm install ../garch/*.tgz
           node -e "const g = require('@krzysztofsztompka/garch'); require('@krzysztofsztompka/garch/node'); if (typeof g.fitGarch !== 'function') process.exit(1)"
           node --input-type=module -e "import { fitGarch } from '@krzysztofsztompka/garch'; import '@krzysztofsztompka/garch/node'; import { GarchWebPool } from '@krzysztofsztompka/garch/web'; if (typeof GarchWebPool !== 'function' || typeof fitGarch !== 'function') process.exit(1)"
+      - name: the examples run against the packed package
+        run: |
+          cp -r examples ../consumer/examples
+          cd ../consumer
+          node examples/forecast.mjs
+          node examples/var-backtest.mjs
+          node examples/simulate-fan.mjs

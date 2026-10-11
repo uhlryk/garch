@@ -31,6 +31,9 @@ fit.inference?.pValues.gamma;  // robust, two-sided
 forecastVariance(fit, 20);     // s_{T+1} … s_{T+20}
 ```
 
+A complete program: [`examples/forecast.mjs`](examples/forecast.mjs) fits
+gjr-t on SPY, forecasts 20 days and grades the model walked forward.
+
 A walk-forward refits at every origin, which takes seconds to a minute on one
 core for a long history. The pool spreads it over every core but one, off the
 caller's event loop, with the same answer to the bit:
@@ -142,6 +145,8 @@ resampled (`innovations: { bootstrap: z }`, below); an EGARCH with t is
 refused, as in fitting. One seeded
 stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
 platform. The paths' mean variance converges to `forecastVariance`.
+[`examples/simulate-fan.mjs`](examples/simulate-fan.mjs) reads the percentiles
+of the 10-day return, a fan chart's edges, off 20 000 paths.
 
 ### Extending a fit without refitting
 
@@ -177,6 +182,8 @@ return under GARCH is not normal, so `simulatedTailRisk` reads VaR and ES off
 `simulate`'s paths. `varBacktest` walks a one-step VaR forward and
 `coverageTest` grades the violations: Kupiec's unconditional coverage,
 Christoffersen's independence, and both together.
+[`examples/var-backtest.mjs`](examples/var-backtest.mjs) walks a 99 % VaR
+forward day by day on SPY, parametric and FHS.
 
 ### Filtered historical simulation
 
@@ -288,6 +295,8 @@ written out literally, so Vite and webpack bundle it without configuration;
 both were checked in Chrome. A bundler that needs the worker its own way passes
 `new GarchWebPool(size, () => new Worker(...))`. Node's pool and this one share
 one implementation of the queue, deadline and cancellation (`WorkerPool`).
+[`examples/browser/`](examples/browser) is a Vite page running a walk-forward
+on the web pool (`npm install && npm run dev` there).
 
 ## Several models, weighted by their past loss
 
@@ -325,6 +334,21 @@ and the coverage of a forecast range — against what happened:
 | ETF / index (6) | passes | passes |
 
 npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹⁰).
+
+## Examples
+
+Complete programs in [`examples/`](examples), each importing the package by
+name; CI runs the Node ones against the packed tarball. In a checkout,
+`npm run build` first (the name resolves to `dist/`).
+
+| example | what it shows |
+|---|---|
+| [`forecast.mjs`](examples/forecast.mjs) | gjr-t on SPY on the worker pool: parameters, σ̂ tomorrow and over 20 days, the walk-forward verdict and its Diebold–Mariano p-value. |
+| [`var-backtest.mjs`](examples/var-backtest.mjs) | A one-step 99 % VaR walked forward day by day, parametric and FHS, with Kupiec and Christoffersen. |
+| [`simulate-fan.mjs`](examples/simulate-fan.mjs) | Paths from the fit: percentiles of the 10-day return, and the 10-day VaR and ES. |
+| [`browser/`](examples/browser) | A Vite page running the walk-forward on Web Workers. |
+
+`examples/spy.json` holds the last 2 501 SPY closes of the test fixture.
 
 ## Usage
 
@@ -533,6 +557,7 @@ the tests also run it in-process.
   python3 -m venv .venv && .venv/bin/pip install -r scripts/arch-fixtures/requirements.txt
   .venv/bin/python scripts/arch-fixtures/generate.py
   ```
+- **The examples** run in CI on every Node version against the packed tarball, so the published entry points work as a caller imports them.
 - **Worker round trip.** The same answer as in-process, an input refusal kept as an input refusal, and a timeout that terminates the worker.
 - **The modes.** Best first, the fit being the first; the warm start's optimum marked; rivals only within the asked distance.
 - **Student-t.** The gradient against finite differences, ν included. ν is recovered on a simulated t-GARCH path. A ν below the floor is held and converges, and its standard error is NaN. Robust SE come with a free ν.

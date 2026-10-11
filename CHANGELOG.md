@@ -45,6 +45,9 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
   export without a doc comment) and published on GitHub Pages; the package's
   `homepage` points there. `/node` and `/web` export the types `PoolWorker`,
   `WorkerEvents` and `Answer` that `WorkerPool`'s constructor refers to.
+- Runnable examples (`examples/`): a forecast, a VaR backtest, a simulated fan
+  and a Vite page on the web pool; CI runs the Node ones against the packed
+  tarball.
 
 ### Changed
 

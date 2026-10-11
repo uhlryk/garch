@@ -12,3 +12,4 @@ docs-site/
 *.pem
 *.key
 *.log
+examples/browser/package-lock.json
