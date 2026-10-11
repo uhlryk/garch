@@ -1,4 +1,4 @@
-"""The answers `arch` gives on the frozen closes, which test/garch.test.ts holds this package to.
+"""The answers `arch` gives on the frozen closes, which the tests (test/*.test.ts) hold this package to.
 
     python -m venv .venv && .venv/bin/pip install -r scripts/arch-fixtures/requirements.txt
     .venv/bin/python scripts/arch-fixtures/generate.py

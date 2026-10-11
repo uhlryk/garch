@@ -1,7 +1,7 @@
 # @krzysztofsztompka/garch
 
-Pure-TypeScript GARCH library on npm. `src/` is the package, `test/garch.test.ts`
-the suite (node --test, no framework), `scripts/` dev tools, `build/` the post-tsc step.
+Pure-TypeScript GARCH library on npm. `src/` is the package, `test/*.test.ts`
+the suite, one file per area (node --test, no framework; shared helpers in `test/helpers.ts`), `scripts/` dev tools, `build/` the post-tsc step.
 
 ## Every change that touches the public API or behaviour
 

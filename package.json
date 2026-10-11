@@ -85,8 +85,8 @@
     "lint:fix": "biome check --write .",
     "docs": "typedoc",
     "docs:check": "node scripts/check-readme.mjs",
-    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/garch.test.js",
-    "coverage": "tsc -p tsconfig.test.json && node --test --experimental-test-coverage --test-coverage-exclude='dist-test/test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=80 dist-test/test/garch.test.js",
+    "test": "rm -rf dist-test && tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "coverage": "rm -rf dist-test && tsc -p tsconfig.test.json && node --test --experimental-test-coverage --test-coverage-exclude='dist-test/test/**' --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=80 dist-test/test/*.test.js",
     "bench": "npm run build && node scripts/bench.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm test"

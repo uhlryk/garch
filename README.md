@@ -528,7 +528,25 @@ Both export the same names; `/node` runs worker threads, `/web` Web Workers.
 ## Tests
 
 `npm test` compiles `src/` and `test/` with tsc and runs them with `node --test`.
-There is no test framework dependency.
+There is no test framework dependency. One file per area, run in parallel,
+with what they share (the fixtures, a seeded path, the Web Worker shim) in
+`test/helpers.ts`:
+
+| file | area |
+|---|---|
+| [`fit.test.ts`](test/fit.test.ts) | The likelihood and its gradient, `fitGarch`, variance targeting, the modes, Student-t, `quantizedUntil`. |
+| [`egarch.test.ts`](test/egarch.test.ts) | EGARCH. |
+| [`skewt.test.ts`](test/skewt.test.ts) | Skewed-t innovations. |
+| [`garch-x.test.ts`](test/garch-x.test.ts) | GARCH-X. |
+| [`forecast.test.ts`](test/forecast.test.ts) | `forecastVariance`, `extendFit`, `simulate`. |
+| [`validation.test.ts`](test/validation.test.ts) | Walk-forward windows, QLIKE, Diebold–Mariano, `fitsAt`, the weighted forecast. |
+| [`risk.test.ts`](test/risk.test.ts) | Value at risk, backtests, filtered historical simulation. |
+| [`diagnostics.test.ts`](test/diagnostics.test.ts) | Ljung–Box, ARCH-LM, standardised residuals. |
+| [`dcc.test.ts`](test/dcc.test.ts) | DCC-GARCH. |
+| [`pool.test.ts`](test/pool.test.ts) | `runInWorker`, the Node pool and the web pool. |
+| [`against-arch.test.ts`](test/against-arch.test.ts) | `arch`'s answers on the fixture series. |
+
+`node --test dist-test/test/fit.test.js` (after `npm test` has compiled) runs one area.
 `npm run coverage` (Node ≥ 22.8) adds Node's own coverage of the compiled
 code and fails under 95 % of lines, 85 % of branches or 80 % of functions; CI
 runs it on Node 22 and 24. Code that runs only inside a worker is counted where
