@@ -37,12 +37,26 @@ export function egarchLogLikelihood(
   variance: Float64Array,
   contributions?: Float64Array,
 ): number {
-  let total = 0;
-  let prevL = lnBackcast;
-  let prevZ = 0;
+  return continueEgarchLikelihood(returns, p, { L: lnBackcast, z: null }, 0, variance, contributions);
+}
+
+/** Where the EGARCH recursion stands after an observation: ln s and z; z null before the first (no shock term). */
+export type EgarchState = { readonly L: number; readonly z: number | null };
+
+/** `egarchLogLikelihood` carried on from a state and a running total, as `continueLikelihood`. */
+export function continueEgarchLikelihood(
+  returns: ArrayLike<number>,
+  p: GarchParams,
+  from: EgarchState,
+  total: number,
+  variance: Float64Array,
+  contributions?: Float64Array,
+): number {
+  let prevL = from.L;
+  let prevZ = from.z;
   for (let t = 0; t < returns.length; t += 1) {
     const L =
-      t === 0
+      prevZ === null
         ? p.omega + p.beta * prevL
         : p.omega + p.alpha * (Math.abs(prevZ) - EGARCH_ABS_MEAN) + p.gamma * prevZ + p.beta * prevL;
     const s = Math.exp(L);

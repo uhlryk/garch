@@ -6,6 +6,14 @@ All notable changes to `@krzysztofsztompka/garch`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `extendFit(fit, newReturns)`: a fit carried over new returns at its
+  parameters, without re-estimating — the variance path, last residual,
+  log-likelihood and criteria over the whole series, for every model,
+  distribution and mean. `GarchFit.extendedBy` counts the returns added since
+  the estimate (0 for a fit from `fitGarch`).
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

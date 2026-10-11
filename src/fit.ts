@@ -64,6 +64,13 @@ export type GarchFit = {
    * fit. More than one means the likelihood is multimodal on this series.
    */
   readonly modes: readonly GarchMode[];
+  /**
+   * Returns appended by `extendFit` since the parameters were estimated: 0 for
+   * a fit from `fitGarch`. Above 0, the parameters, `inference` and `modes`
+   * are the estimate's; the variance path, `lastResidual`, the
+   * log-likelihood and the criteria cover the whole series.
+   */
+  readonly extendedBy: number;
 };
 
 /** One local maximum of the likelihood, reached from at least one start. */
@@ -268,6 +275,7 @@ export function fitGarch(returns: ArrayLike<number>, options: FitOptions = {}): 
       : null,
     nuBound,
     modes: reportModes(modes, n, persistence),
+    extendedBy: 0,
   };
 }
 
@@ -372,11 +380,12 @@ function fitEgarch(returns: ArrayLike<number>, options: FitOptions): GarchFit {
       : null,
     nuBound: null,
     modes: reportModes(modes, n, egarchPersistence),
+    extendedBy: 0,
   };
 }
 
 /** AIC and BIC of a log-likelihood with k free parameters over n observations. */
-function informationCriteria(ll: number, k: number, n: number) {
+export function informationCriteria(ll: number, k: number, n: number) {
   return { parameterCount: k, aic: -2 * ll + 2 * k, bic: -2 * ll + k * Math.log(n) };
 }
 

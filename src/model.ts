@@ -92,10 +92,28 @@ export function logLikelihood(
   variance: Float64Array,
   contributions?: Float64Array,
 ): number {
-  let total = 0;
-  let prevE2 = bc;
-  let prevNeg = 0.5 * bc;
-  let prevS = bc;
+  return continueLikelihood(returns, p, { e2: bc, neg: 0.5 * bc, s: bc }, 0, variance, contributions);
+}
+
+/** Where the GARCH / GJR recursion stands after an observation: e², e²·[e < 0] and s. */
+export type RecursionState = { readonly e2: number; readonly neg: number; readonly s: number };
+
+/**
+ * `logLikelihood` carried on from a state and a running total: over the
+ * returns that follow, it fills their variances and adds their terms to
+ * `total` one by one, in the order a run over the whole series would.
+ */
+export function continueLikelihood(
+  returns: ArrayLike<number>,
+  p: GarchParams,
+  from: RecursionState,
+  total: number,
+  variance: Float64Array,
+  contributions?: Float64Array,
+): number {
+  let prevE2 = from.e2;
+  let prevNeg = from.neg;
+  let prevS = from.s;
   const nu = p.nu;
   const skew = nu !== undefined && p.lambda !== undefined ? skewConstants(nu, p.lambda) : null;
   const c = nu === undefined ? 0 : tConstant(nu);

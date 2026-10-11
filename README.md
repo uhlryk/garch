@@ -112,6 +112,21 @@ refused, as in fitting. One seeded
 stream (xoshiro128**) feeds every path, so a seed gives the same paths on any
 platform. The paths' mean variance converges to `forecastVariance`.
 
+### Extending a fit without refitting
+
+`extendFit(fit, newReturns)` runs the variance recursion on over returns that
+came after the estimate, at the fit's parameters, unchanged — what a caller who
+refits weekly needs for today's forecast after each new return: one pass over the
+new returns instead of a multi-start fit. The answer is a `GarchFit`:
+`forecastVariance`, `simulate` and `tailRisk` take it as any fit. Its variance
+path, `lastResidual`, log-likelihood, AIC and BIC cover the whole series; its
+parameters, `inference`, `modes` and `converged` stay the estimate's, and
+`extendedBy` counts the returns added since it (0 for a fit from `fitGarch`).
+
+- **The same numbers as a run over the whole series.** For garch and gjr the variance path and log-likelihood are those of `logLikelihood` over the concatenated returns at the same parameters, to the bit; EGARCH restarts from ln of the last variance, one rounding away (~1e-15).
+- **Against `arch`.** It is `arch`'s `fix(params)` on the longer series (statsmodels' state-space results call the same step `append(refit=False)`): on SPY, a gjr fit on all but the last 250 returns, carried over them, reaches `fix`'s last variance and one-step forecast to 1e-10. The log-likelihoods differ by ~1e-4 because `fix` backcasts at the fixed μ rather than the sample mean.
+- **When to refit is the caller's.** The parameters drift slowly, so a weekly or monthly refit with daily extensions in between is the usual pattern; a large shock or a regime change is the time to refit sooner. `extendedBy` says how stale the estimate is.
+
 ### Residual diagnostics
 
 `standardizedResiduals(fit, returns)` gives z_t = (r_t − μ)/√s_t. `ljungBox`
@@ -233,7 +248,7 @@ npm `garch`'s variance forecast collapses to ≈ 0 at single origins (QLIKE 10¹
 ## Usage
 
 ```ts
-import { archLm, egarchForecast, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
+import { archLm, egarchForecast, extendFit, fitGarch, forecastVariance, ljungBox, quantizedUntil, simulate, simulatedTailRisk, standardizedResiduals, tailRisk, varBacktest, walkForwardValidation, volatilityForecast, fitsAt } from '@krzysztofsztompka/garch';
 import { fitsAtInWorkers, runInWorker, volatilityForecastInWorkers, weightedForecastInWorkers } from '@krzysztofsztompka/garch/node'; // or '/web'
 
 const fit = fitGarch(returns, { model: 'gjr', inference: true });
@@ -248,6 +263,9 @@ fitGarch(returns.slice(quantizedUntil(returns)), { dist: 't' });   // Student-t 
 // paths forward from where the fit stands (seeded); a FitAt from fitsAt spreads in as it is
 simulate({ model: 'gjr', params: fit.params, lastVariance: fit.conditionalVariance.at(-1), lastResidual: fit.lastResidual,
            steps: 20, paths: 10_000, seed: 1 });   // → { returns, variance }: Float64Array per path
+
+const today = extendFit(fit, newReturns);   // the recursion carried over new returns, parameters unchanged
+forecastVariance(today, 20);                 // today.extendedBy: returns since the estimate
 
 const z = standardizedResiduals(fit, returns);
 ljungBox(z.map((v) => v * v), 10);   // → { statistic, df, pValue }: ARCH left in the residuals?
@@ -285,7 +303,8 @@ from this section.
 
 | export | what it does |
 |---|---|
-| `fitGarch(returns, options?)` | Maximum likelihood fit: `model` (`'garch'` \| `'gjr'` \| `'egarch'`), `dist` (`'normal'` \| `'t'` \| `'skewt'`), `mean` (`'constant'` \| `'zero'`), `nuMin`, `warmStart`, `inference`. Returns `GarchFit`: params, persistence, log-likelihood, `aic`, `bic`, variance path, `modes`, `nuBound`, `inference`. |
+| `fitGarch(returns, options?)` | Maximum likelihood fit: `model` (`'garch'` \| `'gjr'` \| `'egarch'`), `dist` (`'normal'` \| `'t'` \| `'skewt'`), `mean` (`'constant'` \| `'zero'`), `nuMin`, `warmStart`, `inference`. Returns `GarchFit`: params, persistence, log-likelihood, `aic`, `bic`, variance path, `modes`, `nuBound`, `inference`, `extendedBy`. |
+| `extendFit(fit, newReturns)` | The fit carried over new returns at its parameters, without re-estimating: variance path, `lastResidual`, log-likelihood and criteria over the whole series; `extendedBy` counts the returns added. |
 | `forecastVariance(fit, horizon)` | s_{T+1} … s_{T+h}, analytic (EGARCH's exact). |
 | `egarchForecast(params, lastVariance, lastResidual, horizon)` | EGARCH's closed-form expected variance path, from a state. |
 | `persistence(params)` | α + κγ + β for garch/gjr. |
@@ -379,6 +398,7 @@ the tests also run it in-process.
 - **Every fit is a valid, stationary model.** Inputs that cannot be fitted are refused.
 - **Forecasts** decay to the unconditional variance.
 - **Walk-forward windows** never leak from test into train.
+- **Extending a fit.** For garch, gjr (normal, t, skewed t, zero mean) the extended fit's variance path and log-likelihood equal `logLikelihood` over the whole series to the bit, EGARCH's to 1e-13; extending in steps equals extending at once; the forecast starts from the new last state; on SPY it reaches `arch`'s `fix()` variance and one-step forecast to 1e-10.
 - **Simulation.** A seed gives the same paths; the paths' mean variance matches the analytic forecast for GJR (normal, t and skewed t) and EGARCH, and their innovations have unit variance.
 - **A zero mean and the criteria.** garch, gjr and egarch with `mean: 'zero'` against `arch`'s `mean='Zero'`; AIC and BIC against `arch`'s; the zero mean carried through the pool.
 - **Refusals.** Fractional counts are refused; a pool timeout names the jobs it cut short.

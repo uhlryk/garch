@@ -142,6 +142,29 @@ def skewt_distribution() -> list:
     return out
 
 
+EXTEND_BY = 250
+
+
+def extend_answers(r: np.ndarray) -> dict:
+    """gjr fitted on all but the last EXTEND_BY returns, then those parameters held fixed over
+    the whole series (`fix`): the variance the recursion reaches, the one-step forecast, and
+    the log-likelihood — what extendFit carries a fit to without re-estimating it."""
+    res = fit(r[:-EXTEND_BY], 'GARCH', 1)
+    fixed = arch_model(r, mean='Constant', vol='GARCH', p=1, o=1, q=1, dist='normal').fix(res.params)
+    p = res.params
+    return {
+        'added': EXTEND_BY,
+        'mu': float(p['mu']),
+        'omega': float(p['omega']),
+        'alpha': float(p['alpha[1]']),
+        'gamma': float(p['gamma[1]']),
+        'beta': float(p['beta[1]']),
+        'last_variance': float(fixed.conditional_volatility[-1] ** 2),
+        'forecast_1': float(fixed.forecast(horizon=1, reindex=False).variance.values[-1][0]),
+        'loglik': float(fixed.loglikelihood),
+    }
+
+
 def qlike(realized: np.ndarray, forecast: np.ndarray) -> float:
     ratio = np.maximum(realized / forecast, 1e-300)
     return float(np.mean(ratio - np.log(ratio) - 1))
@@ -217,6 +240,7 @@ def main() -> None:
         }
         if name == 'spy':  # IOVA's quantized history makes a t fit degenerate (see quantizedUntil)
             s['arch']['skewt'] = skewt_answers(r)
+            s['arch']['extend'] = extend_answers(r)
         egarch['series'][name] = egarch_answers(r)
     garch['skewt_distribution'] = skewt_distribution()
     garch['recorded'] = today

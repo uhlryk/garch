@@ -6,6 +6,7 @@ export {
   type TestResult,
 } from './diagnostics.js';
 export { EGARCH_ABS_MEAN, egarchForecast, egarchLogLikelihood, egarchLogLikelihoodGradient } from './egarch.js';
+export { extendFit } from './extend.js';
 export {
   type FitOptions,
   fitGarch,
